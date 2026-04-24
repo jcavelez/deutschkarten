@@ -1,0 +1,46 @@
+services:
+
+  postgres:
+    image: postgres:16-alpine
+    container_name: dk-postgres
+    environment:
+      - POSTGRES_USER=dk
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-dk_secret}
+      - POSTGRES_DB=deutschkarten
+    volumes:
+      - pg_data:/var/lib/postgresql/data
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U dk -d deutschkarten"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  api:
+    build: ./backend
+    container_name: dk-api
+    ports:
+      - "3001:3001"
+    volumes:
+      - media_data:/data/media
+    environment:
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
+      - DATABASE_URL=postgresql://dk:${POSTGRES_PASSWORD:-dk_secret}@postgres:5432/deutschkarten
+      - JWT_SECRET=${JWT_SECRET:-change_me_in_production}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+
+  frontend:
+    build: ./frontend
+    container_name: dk-frontend
+    ports:
+      - "8080:80"
+    depends_on:
+      - api
+    restart: unless-stopped
+
+volumes:
+  media_data:
+  pg_data:

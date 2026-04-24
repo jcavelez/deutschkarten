@@ -1,0 +1,3366 @@
+import React, { useState, useEffect, useCallback, useMemo } from "react";
+
+function mediaUrl(url) {
+  if (!url) return null;
+  if (url.startsWith("http://") || url.startsWith("https://")) return url;
+  return `${API_BASE}${url}`;
+}
+
+// ── Web Speech ───────────────────────────────────────────────────────────────
+function speak(text) {
+  if (!window.speechSynthesis) return;
+  window.speechSynthesis.cancel();
+  const utt = new SpeechSynthesisUtterance(text);
+  utt.lang = "de-DE";
+  utt.rate = 0.9;
+  // Prefer a German voice if available
+  const voices = window.speechSynthesis.getVoices();
+  const deVoice = voices.find(v => v.lang.startsWith("de"));
+  if (deVoice) utt.voice = deVoice;
+  window.speechSynthesis.speak(utt);
+}
+
+// ── SM-2 Algorithm ──────────────────────────────────────────────────────────
+function sm2(card, grade) {
+  let { repetitions, easiness, interval } = card;
+  if (grade >= 3) {
+    if (repetitions === 0) interval = 1;
+    else if (repetitions === 1) interval = 6;
+    else interval = Math.round(interval * easiness);
+    repetitions += 1;
+  } else {
+    repetitions = 0;
+    interval = 1;
+  }
+  easiness = Math.max(1.3, easiness + 0.1 - (5 - grade) * (0.08 + (5 - grade) * 0.02));
+  const nextReview = Date.now() + interval * 86400000;
+  return { repetitions, easiness, interval, nextReview, lastGrade: grade };
+}
+
+function daysUntil(ts) {
+  const d = Math.ceil((ts - Date.now()) / 86400000);
+  return d <= 0 ? "Hoy" : d === 1 ? "Mañana" : `${d} días`;
+}
+
+const API_BASE = "http://localhost:3001";
+
+async function apiFetch(path, opts = {}) {
+  const res = await fetch(`${API_BASE}${path}`, {
+    credentials: "include",
+    headers: { "Content-Type": "application/json", ...(opts.headers || {}) },
+    ...opts,
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw Object.assign(new Error(err.error || res.statusText), { status: res.status });
+  }
+  return res.json();
+}
+
+async function loadCards() {
+  return apiFetch("/cards");
+}
+
+async function saveCards(cards) {
+  return apiFetch("/cards", { method: "PUT", body: JSON.stringify(cards) });
+}
+
+// ── AI Explanation ──────────────────────────────────────────────
+async function fetchExplanation(card) {
+  return apiFetch("/explain", {
+    method: "POST",
+    body: JSON.stringify({ german: card.german, translation: card.translation, note: card.note || "" }),
+  }).then(d => d.text);
+}
+
+// ── Media Upload ──────────────────────────────────────────────────────────────
+async function uploadMedia(file) {
+  const fd = new FormData();
+  fd.append("file", file);
+  const res = await fetch(`${API_BASE}/upload`, { method: "POST", body: fd, credentials: "include" });
+  if (!res.ok) throw new Error("Error al subir archivo.");
+  return res.json();
+}
+
+async function deleteMedia(url) {
+  const filename = url.split("/media/")[1];
+  if (!filename) return;
+  await fetch(`${API_BASE}/media/${filename}`, { method: "DELETE", credentials: "include" });
+}
+
+// ── Styles ──────────────────────────────────────────────────────────────────
+const FONTS = `@import url('https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,400;0,700;1,400&family=DM+Mono:wght@300;400;500&display=swap');`;
+
+const css = `
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    background: #111111;
+    color: #f0ece0;
+    font-family: 'DM Mono', monospace;
+    min-height: 100vh;
+  }
+
+  .app {
+    max-width: 780px;
+    margin: 0 auto;
+    padding: 2rem 1.5rem;
+    min-height: 100vh;
+  }
+
+  .header {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    margin-bottom: 2.5rem;
+    border-bottom: 1px solid #2e2e2e;
+    padding-bottom: 1rem;
+  }
+
+  .logo {
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+    text-decoration: none;
+  }
+
+  .logo-flag {
+    width: 28px;
+    height: 19px;
+    border-radius: 2px;
+    overflow: hidden;
+    flex-shrink: 0;
+    box-shadow: 0 0 0 1px rgba(255,255,255,0.06);
+  }
+
+  .logo-text {
+    font-family: 'Playfair Display', serif;
+    font-size: 1.4rem;
+    font-style: italic;
+    color: #ffcc00;
+    letter-spacing: -0.02em;
+    line-height: 1;
+  }
+
+  .logo-text span { color: #f0ece0; font-style: normal; }
+
+  .nav {
+    display: flex;
+    gap: 0.25rem;
+  }
+
+  .nav-btn {
+    background: none;
+    border: none;
+    color: #888;
+    font-family: 'DM Mono', monospace;
+    font-size: 0.7rem;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    cursor: pointer;
+    padding: 0.4rem 0.75rem;
+    border-radius: 2px;
+    transition: color 0.2s, background 0.2s;
+  }
+
+  .nav-btn.active, .nav-btn:hover {
+    color: #ffcc00;
+    background: #1e1e1e;
+  }
+
+  /* ── Study View ── */
+  .deck-empty {
+    text-align: center;
+    padding: 4rem 2rem;
+    color: #555;
+  }
+
+  .deck-empty p { font-size: 0.8rem; line-height: 2; }
+  .deck-empty strong { color: #ffcc00; font-weight: 400; }
+
+  .session-info {
+    display: flex;
+    gap: 1.5rem;
+    margin-bottom: 1.5rem;
+    font-size: 0.7rem;
+    color: #666;
+    letter-spacing: 0.08em;
+  }
+
+  .session-info span { color: #aaa; }
+  .session-info strong { color: #ffcc00; }
+
+  /* Flashcard */
+  .card-scene {
+    perspective: 1200px;
+    height: 260px;
+    margin-bottom: 1.5rem;
+    cursor: pointer;
+  }
+
+  .card-inner {
+    position: relative;
+    width: 100%;
+    height: 100%;
+    transform-style: preserve-3d;
+    transition: transform 0.55s cubic-bezier(0.4, 0, 0.2, 1);
+  }
+
+  .card-inner.flipped { transform: rotateY(180deg); }
+
+  .card-static {
+    width: 100%;
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    border-radius: 4px;
+    border: 1px solid #2e2e2e;
+    background: #1a1a1a;
+    padding: 1.5rem;
+    position: relative;
+    overflow: hidden;
+  }
+
+  .card-face {
+    position: absolute;
+    inset: 0;
+    backface-visibility: hidden;
+    -webkit-backface-visibility: hidden;
+    border-radius: 4px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 1.5rem;
+    border: 1px solid #2e2e2e;
+    background: #1a1a1a;
+    overflow: hidden;
+  }
+
+  .card-face.back {
+    transform: rotateY(180deg);
+    background: #1e1e1e;
+    border-color: #cc0000;
+  }
+
+  .card-hint {
+    position: absolute;
+    top: 1rem;
+    right: 1rem;
+    font-size: 0.6rem;
+    color: #444;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+  }
+
+  .card-word {
+    font-family: 'Playfair Display', serif;
+    font-size: 2.4rem;
+    color: #f0ece0;
+    text-align: center;
+    line-height: 1.2;
+    margin-bottom: 0.5rem;
+  }
+
+  .card-sub {
+    font-size: 0.72rem;
+    color: #666;
+    letter-spacing: 0.08em;
+    text-align: center;
+  }
+
+  .card-translation {
+    font-family: 'Playfair Display', serif;
+    font-style: italic;
+    font-size: 1.8rem;
+    color: #ffcc00;
+    margin-bottom: 0.5rem;
+    text-align: center;
+  }
+
+  .card-note {
+    font-size: 0.7rem;
+    color: #888;
+    text-align: center;
+    max-width: 80%;
+    line-height: 1.6;
+    margin-top: 0.75rem;
+  }
+
+  /* Grades */
+  .grades {
+    display: grid;
+    grid-template-columns: repeat(5, 1fr);
+    gap: 0.5rem;
+    margin-bottom: 1rem;
+  }
+
+  .grade-btn {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0.3rem;
+    padding: 0.7rem 0.4rem;
+    border: 1px solid #2e2e2e;
+    background: #1a1a1a;
+    border-radius: 3px;
+    cursor: pointer;
+    transition: border-color 0.2s, background 0.2s;
+    font-family: 'DM Mono', monospace;
+  }
+
+  .grade-btn:hover { background: #222; }
+
+  .grade-btn.g0:hover { border-color: #cc0000; }
+  .grade-btn.g1:hover { border-color: #aa2200; }
+  .grade-btn.g2:hover { border-color: #886600; }
+  .grade-btn.g3:hover { border-color: #aa8800; }
+  .grade-btn.g4:hover { border-color: #ccaa00; }
+  .grade-btn.g5:hover { border-color: #ffcc00; }
+
+  .grade-num {
+    font-size: 1.1rem;
+    font-weight: 500;
+  }
+
+  .grade-btn.g0 .grade-num { color: #cc0000; }
+  .grade-btn.g1 .grade-num { color: #dd4400; }
+  .grade-btn.g2 .grade-num { color: #bb8800; }
+  .grade-btn.g3 .grade-num { color: #ccaa00; }
+  .grade-btn.g4 .grade-num { color: #ddbb00; }
+  .grade-btn.g5 .grade-num { color: #ffcc00; }
+
+  .grade-label {
+    font-size: 0.55rem;
+    color: #777;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    text-align: center;
+  }
+
+  /* AI Explain */
+  .explain-btn {
+    width: 100%;
+    padding: 0.65rem;
+    background: none;
+    border: 1px dashed #333;
+    border-radius: 3px;
+    color: #888;
+    font-family: 'DM Mono', monospace;
+    font-size: 0.7rem;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    cursor: pointer;
+    transition: color 0.2s, border-color 0.2s;
+    margin-bottom: 0.75rem;
+  }
+
+  .explain-btn:hover { color: #ffcc00; border-color: #cc0000; }
+  .explain-btn:disabled { opacity: 0.3; cursor: not-allowed; }
+
+  .explanation {
+    background: #181818;
+    border: 1px solid #2e2e2e;
+    border-radius: 3px;
+    padding: 1.25rem 1.5rem;
+    font-size: 0.78rem;
+    line-height: 1.8;
+    color: #c8c0a8;
+    white-space: pre-wrap;
+    margin-bottom: 1rem;
+  }
+
+  /* ── Add Card View ── */
+  .add-form {
+    background: #1a1a1a;
+    border: 1px solid #2e2e2e;
+    border-radius: 4px;
+    padding: 2rem;
+  }
+
+  .form-title {
+    font-family: 'Playfair Display', serif;
+    font-size: 1.2rem;
+    color: #ffcc00;
+    margin-bottom: 1.5rem;
+    font-style: italic;
+  }
+
+  .field {
+    margin-bottom: 1.25rem;
+  }
+
+  .field label {
+    display: block;
+    font-size: 0.65rem;
+    color: #888;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    margin-bottom: 0.5rem;
+  }
+
+  .field input, .field textarea {
+    width: 100%;
+    background: #111111;
+    border: 1px solid #2e2e2e;
+    border-radius: 2px;
+    padding: 0.7rem 0.9rem;
+    color: #f0ece0;
+    font-family: 'DM Mono', monospace;
+    font-size: 0.85rem;
+    outline: none;
+    transition: border-color 0.2s;
+  }
+
+  .field input:focus, .field textarea:focus {
+    border-color: #cc0000;
+  }
+
+  .field textarea { resize: vertical; min-height: 80px; }
+
+  .submit-btn {
+    background: #cc0000;
+    border: 1px solid #990000;
+    border-radius: 2px;
+    color: #f0ece0;
+    font-family: 'DM Mono', monospace;
+    font-size: 0.7rem;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    padding: 0.75rem 2rem;
+    cursor: pointer;
+    transition: background 0.2s;
+  }
+
+  .submit-btn:hover { background: #990000; }
+
+  .success-msg {
+    margin-top: 1rem;
+    font-size: 0.7rem;
+    color: #88cc44;
+    letter-spacing: 0.08em;
+  }
+
+  /* ── List View ── */
+  .list-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    margin-bottom: 1rem;
+  }
+
+  .list-title {
+    font-family: 'Playfair Display', serif;
+    font-size: 1.2rem;
+    color: #ffcc00;
+    font-style: italic;
+  }
+
+  .list-count {
+    font-size: 0.65rem;
+    color: #666;
+    letter-spacing: 0.1em;
+  }
+
+  .card-list { display: flex; flex-direction: column; gap: 0.4rem; }
+
+  .list-item {
+    display: grid;
+    grid-template-columns: 30px 1fr auto auto auto auto;
+    align-items: center;
+    gap: 0.6rem;
+    padding: 0.6rem 0.75rem;
+    background: #1a1a1a;
+    border: 1px solid #2a2a2a;
+    border-radius: 2px;
+    transition: border-color 0.2s;
+  }
+
+  .list-item:hover { border-color: #cc0000; }
+
+  .li-german {
+    font-family: 'Playfair Display', serif;
+    font-size: 0.95rem;
+    color: #f0ece0;
+  }
+
+  .li-trans {
+    font-size: 0.75rem;
+    color: #aaa;
+    font-style: italic;
+  }
+
+  .li-next {
+    font-size: 0.65rem;
+    color: #777;
+    letter-spacing: 0.06em;
+    text-align: right;
+    white-space: nowrap;
+  }
+
+  .li-next.due { color: #cc0000; }
+
+  .delete-btn {
+    background: none;
+    border: none;
+    color: #444;
+    cursor: pointer;
+    font-size: 0.8rem;
+    padding: 0.2rem 0.4rem;
+    border-radius: 2px;
+    transition: color 0.2s;
+    font-family: 'DM Mono', monospace;
+  }
+
+  .delete-btn:hover { color: #cc0000; }
+
+  .noise {
+    position: fixed;
+    inset: 0;
+    pointer-events: none;
+    opacity: 0.03;
+    background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+    background-size: 180px;
+    z-index: 9999;
+  }
+
+
+  /* ── Add Tabs ── */
+  .add-tabs {
+    display: flex;
+    gap: 0;
+    margin-bottom: 1.5rem;
+    border-bottom: 1px solid #2e2e2e;
+  }
+
+  .add-tab {
+    background: none;
+    border: none;
+    border-bottom: 2px solid transparent;
+    margin-bottom: -1px;
+    padding: 0.5rem 1rem;
+    color: #777;
+    font-family: 'DM Mono', monospace;
+    font-size: 0.68rem;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    cursor: pointer;
+    transition: color 0.2s, border-color 0.2s;
+  }
+
+  .add-tab.active {
+    color: #ffcc00;
+    border-bottom-color: #ffcc00;
+  }
+
+  .bulk-textarea {
+    width: 100%;
+    background: #111111;
+    border: 1px solid #2e2e2e;
+    border-radius: 2px;
+    padding: 0.7rem 0.9rem;
+    color: #8a9a8a;
+    font-family: 'DM Mono', monospace;
+    font-size: 0.75rem;
+    outline: none;
+    resize: vertical;
+    min-height: 160px;
+    line-height: 1.7;
+    transition: border-color 0.2s;
+  }
+
+  .bulk-textarea:focus { border-color: #cc0000; }
+
+  .bulk-replace-row {
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+    font-size: 0.68rem;
+    color: #777;
+    letter-spacing: 0.04em;
+    cursor: pointer;
+    margin-bottom: 0.25rem;
+  }
+  .bulk-replace-row input { accent-color: #cc0000; cursor: pointer; }
+  .bulk-replace-row:hover span { color: #aaa; }
+
+  .preview-card-btn {
+    background: none;
+    border: none;
+    color: #444;
+    cursor: pointer;
+    padding: 0.2rem 0.4rem;
+    border-radius: 2px;
+    transition: color 0.2s;
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+  }
+  .preview-card-btn:hover { color: #ffcc00; }
+
+  .bulk-schema {
+    font-size: 0.65rem;
+    color: #777;
+    margin-bottom: 1rem;
+    letter-spacing: 0.04em;
+    line-height: 1.6;
+  }
+
+  .bulk-schema code {
+    color: #ffcc00;
+    background: #222;
+    padding: 0.1em 0.3em;
+    border-radius: 2px;
+    font-size: 0.9em;
+  }
+
+  .error-msg {
+    margin-top: 1rem;
+    font-size: 0.7rem;
+    color: #cc4444;
+    letter-spacing: 0.08em;
+  }
+
+
+
+
+  /* ── Media on card ── */
+  .card-media {
+    max-width: 90%;
+    max-height: 110px;
+    width: auto;
+    border-radius: 3px;
+    object-fit: contain;
+    margin-bottom: 0.6rem;
+    border: 1px solid #2e2e2e;
+    flex-shrink: 0;
+  }
+
+  .card-audio {
+    width: 90%;
+    max-width: 260px;
+    margin-top: 0.5rem;
+    margin-bottom: 0.4rem;
+    accent-color: #cc0000;
+    height: 32px;
+    flex-shrink: 0;
+  }
+
+
+  .mode-toggle {
+    background: none;
+    border: none;
+    color: #555;
+    font-family: 'DM Mono', monospace;
+    font-size: 0.58rem;
+    letter-spacing: 0.06em;
+    cursor: pointer;
+    padding: 0;
+    text-decoration: underline;
+    text-underline-offset: 2px;
+    transition: color 0.2s;
+  }
+  .mode-toggle:hover { color: #ffcc00; }
+
+  .url-input-row {
+    display: flex;
+    gap: 0.5rem;
+    align-items: center;
+  }
+
+  .url-input {
+    flex: 1;
+    background: #111;
+    border: 1px solid #333;
+    border-radius: 2px;
+    padding: 0.5rem 0.75rem;
+    color: #f0ece0;
+    font-family: 'DM Mono', monospace;
+    font-size: 0.75rem;
+    outline: none;
+    transition: border-color 0.2s;
+  }
+  .url-input:focus { border-color: #cc0000; }
+
+  .url-set-btn {
+    background: #222;
+    border: 1px solid #333;
+    border-radius: 2px;
+    color: #ffcc00;
+    font-family: 'DM Mono', monospace;
+    font-size: 0.68rem;
+    letter-spacing: 0.08em;
+    padding: 0.5rem 0.85rem;
+    cursor: pointer;
+    transition: background 0.2s;
+    white-space: nowrap;
+  }
+  .url-set-btn:hover { background: #2a2a2a; }
+
+  .media-preview-label {
+    font-size: 0.62rem;
+    color: #777;
+    max-width: 160px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .media-upload-row {
+    display: flex;
+    gap: 0.5rem;
+    align-items: center;
+    flex-wrap: wrap;
+    margin-top: 0.5rem;
+  }
+
+  .media-upload-btn {
+    background: #111;
+    border: 1px dashed #333;
+    border-radius: 2px;
+    color: #777;
+    font-family: 'DM Mono', monospace;
+    font-size: 0.62rem;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    padding: 0.4rem 0.75rem;
+    cursor: pointer;
+    transition: color 0.2s, border-color 0.2s;
+  }
+
+  .media-upload-btn:hover { color: #ffcc00; border-color: #555; }
+
+  .media-preview {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    font-size: 0.65rem;
+    color: #888;
+  }
+
+  .media-preview img {
+    width: 36px;
+    height: 36px;
+    object-fit: cover;
+    border-radius: 2px;
+    border: 1px solid #2e2e2e;
+  }
+
+  .media-remove {
+    background: none;
+    border: none;
+    color: #555;
+    cursor: pointer;
+    font-size: 0.75rem;
+    padding: 0 0.2rem;
+    font-family: 'DM Mono', monospace;
+    transition: color 0.2s;
+  }
+
+  .media-remove:hover { color: #cc0000; }
+
+  .media-uploading {
+    font-size: 0.62rem;
+    color: #666;
+    letter-spacing: 0.06em;
+    font-style: italic;
+  }
+
+  /* ── Delete All / Confirm ── */
+  .list-header-right {
+    display: flex;
+    align-items: baseline;
+    gap: 1rem;
+  }
+
+  .delete-all-btn {
+    background: none;
+    border: 1px solid #2e2e2e;
+    border-radius: 2px;
+    color: #555;
+    font-family: 'DM Mono', monospace;
+    font-size: 0.62rem;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    padding: 0.3rem 0.7rem;
+    cursor: pointer;
+    transition: color 0.2s, border-color 0.2s;
+  }
+
+  .delete-all-btn:hover {
+    color: #cc0000;
+    border-color: #cc0000;
+  }
+
+  .export-btn {
+    background: none;
+    border: 1px solid #2e2e2e;
+    border-radius: 2px;
+    color: #555;
+    font-family: 'DM Mono', monospace;
+    font-size: 0.62rem;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    padding: 0.3rem 0.7rem;
+    cursor: pointer;
+    transition: color 0.2s, border-color 0.2s;
+  }
+  .export-btn:hover { color: #ffcc00; border-color: #ffcc00; }
+
+  .confirm-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,0.75);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 1000;
+    padding: 1.5rem;
+  }
+
+  .confirm-dialog {
+    background: #1a1a1a;
+    border: 1px solid #cc0000;
+    border-radius: 4px;
+    padding: 2rem;
+    max-width: 360px;
+    width: 100%;
+  }
+
+  .confirm-title {
+    font-family: 'Playfair Display', serif;
+    font-size: 1.1rem;
+    color: #f0ece0;
+    margin-bottom: 0.75rem;
+  }
+
+  .confirm-body {
+    font-size: 0.75rem;
+    color: #888;
+    line-height: 1.7;
+    margin-bottom: 1.5rem;
+  }
+
+  .confirm-body strong { color: #f0ece0; font-weight: 400; }
+
+  .confirm-actions {
+    display: flex;
+    gap: 0.75rem;
+    justify-content: flex-end;
+  }
+
+  .confirm-cancel {
+    background: none;
+    border: 1px solid #2e2e2e;
+    border-radius: 2px;
+    color: #888;
+    font-family: 'DM Mono', monospace;
+    font-size: 0.68rem;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    padding: 0.6rem 1.25rem;
+    cursor: pointer;
+    transition: border-color 0.2s, color 0.2s;
+  }
+
+  .confirm-cancel:hover { border-color: #555; color: #f0ece0; }
+
+  .confirm-ok {
+    background: #cc0000;
+    border: 1px solid #cc0000;
+    border-radius: 2px;
+    color: #f0ece0;
+    font-family: 'DM Mono', monospace;
+    font-size: 0.68rem;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    padding: 0.6rem 1.25rem;
+    cursor: pointer;
+    transition: background 0.2s;
+  }
+
+  .confirm-ok:hover { background: #990000; border-color: #990000; }
+
+
+  /* ── List search ── */
+  .list-search-wrap {
+    position: relative;
+    margin-bottom: 1rem;
+  }
+
+  .list-search {
+    width: 100%;
+    background: #111;
+    border: 1px solid #2e2e2e;
+    border-radius: 2px;
+    padding: 0.6rem 2rem 0.6rem 0.9rem;
+    color: #f0ece0;
+    font-family: 'DM Mono', monospace;
+    font-size: 0.8rem;
+    outline: none;
+    transition: border-color 0.2s;
+  }
+  .list-search:focus { border-color: #cc0000; }
+  .list-search::placeholder { color: #444; }
+
+  .list-search-clear {
+    position: absolute;
+    right: 0.6rem;
+    top: 50%;
+    transform: translateY(-50%);
+    background: none;
+    border: none;
+    color: #555;
+    font-size: 1rem;
+    cursor: pointer;
+    padding: 0;
+    line-height: 1;
+    transition: color 0.2s;
+  }
+  .list-search-clear:hover { color: #cc0000; }
+
+  .list-empty {
+    font-size: 0.75rem;
+    color: #555;
+    padding: 2rem;
+    text-align: center;
+  }
+  .list-empty em { color: #888; font-style: normal; }
+
+  /* ── List item updated ── */
+  .li-main { flex: 1; min-width: 0; }
+  .li-note {
+    font-size: 0.6rem;
+    color: #555;
+    letter-spacing: 0.04em;
+    margin-top: 0.15rem;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .edit-btn {
+    background: none;
+    border: none;
+    color: #444;
+    cursor: pointer;
+    font-size: 0.85rem;
+    padding: 0.2rem 0.4rem;
+    border-radius: 2px;
+    transition: color 0.2s;
+    font-family: 'DM Mono', monospace;
+    flex-shrink: 0;
+  }
+  .edit-btn:hover { color: #ffcc00; }
+
+  /* ── Edit modal ── */
+  .edit-dialog {
+    background: #1a1a1a;
+    border: 1px solid #ffcc00;
+    border-radius: 4px;
+    padding: 1.75rem;
+    max-width: 420px;
+    width: 100%;
+    max-height: 90vh;
+    overflow-y: auto;
+  }
+
+  .edit-fields { margin: 1.25rem 0; display: flex; flex-direction: column; gap: 0.9rem; }
+
+
+  /* ── Image preview modal ── */
+  .preview-btn {
+    background: none;
+    border: none;
+    cursor: pointer;
+    padding: 0.15rem 0.3rem;
+    border-radius: 2px;
+    flex-shrink: 0;
+    transition: opacity 0.2s;
+    display: flex;
+    align-items: center;
+  }
+  .preview-btn:hover { opacity: 0.7; }
+
+  .preview-thumb {
+    width: 28px;
+    height: 28px;
+    object-fit: cover;
+    border-radius: 2px;
+    border: 1px solid #2e2e2e;
+    display: block;
+  }
+
+  .preview-thumb-empty {
+    width: 28px;
+    height: 28px;
+    border-radius: 2px;
+    border: 1px dashed #333;
+    background: #111;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 0.6rem;
+    color: #444;
+  }
+
+  .card-preview-dialog {
+    background: #1a1a1a;
+    border: 1px solid #2e2e2e;
+    border-radius: 4px;
+    padding: 1.5rem;
+    max-width: 400px;
+    width: 100%;
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+    max-height: 90vh;
+    overflow-y: auto;
+  }
+
+  .card-preview-side {
+    border: 1px solid #2e2e2e;
+    border-radius: 3px;
+    overflow: hidden;
+  }
+
+  .card-preview-label {
+    background: #111;
+    font-size: 0.58rem;
+    color: #555;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    padding: 0.3rem 0.75rem;
+    border-bottom: 1px solid #2e2e2e;
+  }
+
+  .card-preview-body {
+    padding: 1.25rem;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0.6rem;
+    min-height: 80px;
+    justify-content: center;
+  }
+
+  .card-preview-big {
+    font-family: 'Playfair Display', serif;
+    font-size: 1.6rem;
+    color: #f0ece0;
+    text-align: center;
+    line-height: 1.2;
+  }
+
+  .card-preview-trans {
+    font-family: 'Playfair Display', serif;
+    font-style: italic;
+    font-size: 1.3rem;
+    color: #ffcc00;
+    text-align: center;
+  }
+
+  .card-preview-example {
+    font-size: 0.78rem;
+    color: #888;
+    text-align: center;
+    font-style: italic;
+    line-height: 1.6;
+  }
+
+  .card-preview-note {
+    font-size: 0.65rem;
+    color: #555;
+    text-align: center;
+    letter-spacing: 0.04em;
+  }
+
+  .card-preview-img {
+    max-width: 100%;
+    max-height: 140px;
+    object-fit: contain;
+    border-radius: 3px;
+  }
+
+  .img-preview-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,0.85);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 1000;
+    padding: 1.5rem;
+  }
+
+  .img-preview-dialog {
+    background: #1a1a1a;
+    border: 1px solid #2e2e2e;
+    border-radius: 4px;
+    padding: 1.5rem;
+    max-width: 420px;
+    width: 100%;
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+  }
+
+  .img-preview-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+  }
+
+  .img-preview-word {
+    font-family: 'Playfair Display', serif;
+    font-size: 1.1rem;
+    color: #f0ece0;
+  }
+
+  .img-preview-close {
+    background: none;
+    border: none;
+    color: #555;
+    font-size: 1.2rem;
+    cursor: pointer;
+    padding: 0;
+    line-height: 1;
+    transition: color 0.2s;
+  }
+  .img-preview-close:hover { color: #f0ece0; }
+
+  .img-preview-frame {
+    width: 100%;
+    aspect-ratio: 4/3;
+    background: #111;
+    border: 1px solid #2e2e2e;
+    border-radius: 3px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    overflow: hidden;
+    position: relative;
+  }
+
+  .img-preview-frame img {
+    max-width: 100%;
+    max-height: 100%;
+    object-fit: contain;
+  }
+
+  .img-preview-broken {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0.5rem;
+    color: #444;
+    font-size: 0.7rem;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+  }
+
+  .img-preview-broken-icon {
+    font-size: 2rem;
+    opacity: 0.3;
+  }
+
+  .img-preview-url-row {
+    display: flex;
+    gap: 0.5rem;
+  }
+
+  .img-preview-url-input {
+    flex: 1;
+    background: #111;
+    border: 1px solid #333;
+    border-radius: 2px;
+    padding: 0.5rem 0.75rem;
+    color: #f0ece0;
+    font-family: 'DM Mono', monospace;
+    font-size: 0.72rem;
+    outline: none;
+    transition: border-color 0.2s;
+  }
+  .img-preview-url-input:focus { border-color: #cc0000; }
+  .img-preview-url-input::placeholder { color: #444; }
+
+  .img-preview-save-btn {
+    background: #cc0000;
+    border: none;
+    border-radius: 2px;
+    color: #f0ece0;
+    font-family: 'DM Mono', monospace;
+    font-size: 0.65rem;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    padding: 0 0.9rem;
+    cursor: pointer;
+    transition: background 0.2s;
+    white-space: nowrap;
+  }
+  .img-preview-save-btn:hover { background: #990000; }
+
+  .img-preview-status {
+    font-size: 0.65rem;
+    text-align: center;
+    letter-spacing: 0.06em;
+  }
+  .img-preview-status.ok { color: #44aa44; }
+  .img-preview-status.err { color: #cc4444; }
+
+  /* filter button */
+  .list-filter-row {
+    display: flex;
+    gap: 0.5rem;
+    margin-bottom: 0.75rem;
+    flex-wrap: wrap;
+  }
+
+  .list-filter-btn {
+    background: #111;
+    border: 1px solid #2e2e2e;
+    border-radius: 2px;
+    color: #555;
+    font-family: 'DM Mono', monospace;
+    font-size: 0.62rem;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    padding: 0.3rem 0.7rem;
+    cursor: pointer;
+    transition: all 0.2s;
+  }
+  .list-filter-btn.active { border-color: #cc0000; color: #f0ece0; background: #1a0000; }
+  .list-filter-btn:hover:not(.active) { border-color: #444; color: #aaa; }
+
+  /* ── Toast ── */
+  .toast {
+    position: fixed;
+    bottom: 2rem;
+    left: 50%;
+    transform: translateX(-50%) translateY(0);
+    background: #1a1a1a;
+    border: 1px solid #3a3a3a;
+    border-left: 3px solid #44aa44;
+    border-radius: 3px;
+    padding: 0.65rem 1.25rem;
+    font-family: 'DM Mono', monospace;
+    font-size: 0.7rem;
+    letter-spacing: 0.06em;
+    color: #88dd88;
+    z-index: 2000;
+    white-space: nowrap;
+    animation: toast-in 0.2s ease, toast-out 0.3s ease 1.8s forwards;
+    pointer-events: none;
+  }
+
+  @keyframes toast-in {
+    from { opacity: 0; transform: translateX(-50%) translateY(8px); }
+    to   { opacity: 1; transform: translateX(-50%) translateY(0); }
+  }
+  @keyframes toast-out {
+    from { opacity: 1; transform: translateX(-50%) translateY(0); }
+    to   { opacity: 0; transform: translateX(-50%) translateY(8px); }
+  }
+
+  /* ── Stats View ── */
+  .stats-view {
+    display: flex;
+    flex-direction: column;
+    gap: 1.5rem;
+  }
+
+  .stats-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+  }
+
+  .stats-title {
+    font-family: 'Playfair Display', serif;
+    font-size: 1.2rem;
+    color: #ffcc00;
+    font-style: italic;
+  }
+
+  .stats-total {
+    font-size: 0.65rem;
+    color: #666;
+    letter-spacing: 0.1em;
+  }
+
+  .stats-chart {
+    background: #1a1a1a;
+    border: 1px solid #2e2e2e;
+    border-radius: 4px;
+    padding: 1.5rem;
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+  }
+
+  .stats-row {
+    display: grid;
+    grid-template-columns: 90px 1fr 70px;
+    align-items: center;
+    gap: 0.75rem;
+  }
+
+  .stats-row-label {
+    font-size: 0.68rem;
+    color: #aaa;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+  }
+
+  .stats-bar-wrap {
+    height: 10px;
+    background: #222;
+    border-radius: 2px;
+    overflow: hidden;
+  }
+
+  .stats-bar {
+    height: 100%;
+    border-radius: 2px;
+    transition: width 0.6s cubic-bezier(0.4, 0, 0.2, 1);
+    min-width: 2px;
+  }
+
+  .stats-row-count {
+    display: flex;
+    align-items: baseline;
+    gap: 0.4rem;
+    justify-content: flex-end;
+  }
+
+  .stats-n {
+    font-size: 0.9rem;
+    font-family: 'Playfair Display', serif;
+    font-weight: 700;
+  }
+
+  .stats-pct {
+    font-size: 0.58rem;
+    color: #555;
+  }
+
+  .stats-footer {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 0.75rem;
+  }
+
+  .stats-kpi {
+    background: #1a1a1a;
+    border: 1px solid #2e2e2e;
+    border-radius: 3px;
+    padding: 1rem 0.75rem;
+    text-align: center;
+  }
+
+  .kpi-val {
+    font-family: 'Playfair Display', serif;
+    font-size: 1.8rem;
+    font-weight: 700;
+    line-height: 1;
+    margin-bottom: 0.4rem;
+  }
+
+  .kpi-label {
+    font-size: 0.58rem;
+    color: #666;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    line-height: 1.4;
+  }
+
+  @media (max-width: 430px) {
+    .stats-row {
+      grid-template-columns: 70px 1fr 60px;
+      gap: 0.5rem;
+    }
+    .stats-row-label { font-size: 0.6rem; }
+    .kpi-val { font-size: 1.4rem; }
+    .kpi-label { font-size: 0.55rem; }
+  }
+
+
+  /* ── Card type badges ── */
+  .card-type-badge {
+    position: absolute;
+    top: 0.75rem;
+    left: 0.75rem;
+    font-size: 0.58rem;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: #888;
+    background: rgba(0,0,0,0.6);
+    border: 1px solid #3a3a3a;
+    border-radius: 2px;
+    padding: 0.2rem 0.5rem;
+  }
+
+  /* ── Type 1: image card ── */
+  .t1-front {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 0.75rem;
+    width: 100%;
+    height: 100%;
+  }
+
+  .t1-front-img {
+    width: auto;
+    height: 55%;
+    max-width: 80%;
+    object-fit: contain;
+    border-radius: 4px;
+    border: 1px solid #2e2e2e;
+    background: #111;
+    flex-shrink: 0;
+  }
+
+  .t1-front-hint {
+    font-size: 0.58rem;
+    color: #444;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+  }
+
+  .t1-back-word {
+    font-family: 'Playfair Display', serif;
+    font-size: 2.6rem;
+    color: #f0ece0;
+    text-align: center;
+    line-height: 1.1;
+    margin-bottom: 0.35rem;
+  }
+
+  .t1-back-note {
+    font-size: 0.65rem;
+    color: #666;
+    letter-spacing: 0.06em;
+    margin-bottom: 1rem;
+  }
+
+  .audio-replay-btn {
+    background: #111;
+    border: 1px solid #555;
+    border-radius: 50%;
+    width: 40px;
+    height: 40px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    font-size: 1rem;
+    color: #888;
+    transition: background 0.2s, border-color 0.2s, color 0.2s, transform 0.1s;
+    flex-shrink: 0;
+    margin-top: 0.5rem;
+  }
+  .audio-replay-btn:hover { background: #1a1600; border-color: #ffcc00; color: #ffcc00; transform: scale(1.08); }
+  .audio-replay-btn.playing { border-color: #ffcc00; color: #ffcc00; }
+
+  /* ── Type 2: example card ── */
+  .t2-front {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 0.75rem;
+    width: 100%;
+    padding: 0 0.5rem;
+  }
+
+  .t2-word {
+    font-family: 'Playfair Display', serif;
+    font-size: 2rem;
+    color: #f0ece0;
+    text-align: center;
+    line-height: 1.2;
+  }
+
+  .t2-divider {
+    width: 2rem;
+    height: 1px;
+    background: #cc0000;
+    flex-shrink: 0;
+  }
+
+  .t2-example {
+    font-size: 0.78rem;
+    color: #aaa;
+    text-align: center;
+    line-height: 1.7;
+    font-style: italic;
+  }
+
+  .t2-example em {
+    color: #ffcc00;
+    font-style: normal;
+    font-weight: 400;
+  }
+
+  .t2-back {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0.6rem;
+    width: 100%;
+    padding: 0 0.5rem;
+  }
+
+  .t2-translation {
+    font-family: 'Playfair Display', serif;
+    font-style: italic;
+    font-size: 1.6rem;
+    color: #ffcc00;
+    text-align: center;
+  }
+
+  .t2-example-trans {
+    font-size: 0.7rem;
+    color: #666;
+    text-align: center;
+    line-height: 1.6;
+    font-style: italic;
+  }
+
+  /* ── Type selector in form ── */
+  .type-selector {
+    display: flex;
+    gap: 0.5rem;
+    margin-bottom: 1.25rem;
+  }
+
+  .type-btn {
+    flex: 1;
+    padding: 0.5rem;
+    background: #111;
+    border: 1px solid #2e2e2e;
+    border-radius: 2px;
+    color: #666;
+    font-family: 'DM Mono', monospace;
+    font-size: 0.62rem;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    cursor: pointer;
+    transition: all 0.2s;
+    text-align: center;
+    line-height: 1.4;
+  }
+  .type-btn.active {
+    border-color: #cc0000;
+    color: #f0ece0;
+    background: #1a0000;
+  }
+  .type-btn:hover:not(.active) { border-color: #444; color: #aaa; }
+
+
+  /* ── Type 4: español → escribir alemán ── */
+  .t4-front {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 0.5rem;
+    width: 100%;
+    height: 100%;
+  }
+  .t4-label {
+    font-size: 0.58rem;
+    color: #555;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+  }
+  .t4-word {
+    font-family: 'Playfair Display', serif;
+    font-style: italic;
+    font-size: 2.2rem;
+    color: #ffcc00;
+    text-align: center;
+  }
+  .t4-note {
+    font-size: 0.65rem;
+    color: #555;
+    text-align: center;
+  }
+
+  /* ── Type 5: fill in the blank ── */
+  .t5-front {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 0.75rem;
+    width: 100%;
+    height: 100%;
+    padding: 0 1rem;
+  }
+  .t5-sentence {
+    font-size: 1rem;
+    color: #f0ece0;
+    text-align: center;
+    line-height: 1.7;
+  }
+  .t5-blank {
+    display: inline-block;
+    min-width: 5rem;
+    border-bottom: 2px solid #cc0000;
+    color: transparent;
+    user-select: none;
+  }
+
+  /* ── Type 6: article selector ── */
+  .t6-front {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 0.5rem;
+    width: 100%;
+    height: 100%;
+  }
+  .t6-label {
+    font-size: 0.58rem;
+    color: #555;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+  }
+  .t6-word {
+    font-family: 'Playfair Display', serif;
+    font-size: 2.4rem;
+    color: #f0ece0;
+    text-align: center;
+    line-height: 1.1;
+  }
+  .t6-hint {
+    font-size: 0.6rem;
+    color: #444;
+    letter-spacing: 0.08em;
+  }
+
+  /* ── Interactive answer zone (below card for types 4,5,6) ── */
+  .answer-zone {
+    margin-top: 0.75rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+  }
+
+  .answer-input-row {
+    display: flex;
+    gap: 0.5rem;
+  }
+
+  .answer-input {
+    flex: 1;
+    background: #111;
+    border: 1px solid #333;
+    border-radius: 2px;
+    padding: 0.7rem 0.9rem;
+    color: #f0ece0;
+    font-family: 'DM Mono', monospace;
+    font-size: 1rem;
+    outline: none;
+    transition: border-color 0.2s;
+  }
+  .answer-input:focus { border-color: #cc0000; }
+  .answer-input.correct { border-color: #44aa44; background: #0a1a0a; }
+  .answer-input.wrong   { border-color: #cc0000; background: #1a0a0a; }
+
+  .answer-check-btn {
+    background: #cc0000;
+    border: none;
+    border-radius: 2px;
+    color: #f0ece0;
+    font-family: 'DM Mono', monospace;
+    font-size: 0.7rem;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    padding: 0 1.25rem;
+    cursor: pointer;
+    transition: background 0.2s;
+    white-space: nowrap;
+  }
+  .answer-check-btn:hover { background: #990000; }
+  .answer-check-btn:disabled { background: #333; color: #666; cursor: default; }
+
+  .reveal-btn {
+    background: none;
+    border: 1px dashed #444;
+    border-radius: 2px;
+    color: #666;
+    font-family: 'DM Mono', monospace;
+    font-size: 0.65rem;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    padding: 0.5rem 0.9rem;
+    cursor: pointer;
+    transition: color 0.2s, border-color 0.2s;
+    white-space: nowrap;
+  }
+  .reveal-btn:hover { color: #aaa; border-color: #666; }
+
+  .continuar-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    background: #1a1600;
+    border: 1px solid #ffcc00;
+    border-radius: 2px;
+    color: #ffcc00;
+    font-family: 'DM Mono', monospace;
+    font-size: 0.7rem;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    padding: 0.65rem 1.5rem;
+    cursor: pointer;
+    transition: background 0.2s, color 0.2s;
+    margin-top: 0.25rem;
+  }
+  .continuar-btn:hover { background: #2a2200; color: #ffe566; }
+  .continuar-btn::after { content: " →"; font-size: 0.85rem; }
+
+  .answer-feedback {
+    font-size: 0.75rem;
+    padding: 0.6rem 0.9rem;
+    border-radius: 2px;
+    line-height: 1.5;
+  }
+  .answer-feedback.correct {
+    background: #0a1a0a;
+    border: 1px solid #44aa44;
+    color: #88dd88;
+  }
+  .answer-feedback.wrong {
+    background: #1a0a0a;
+    border: 1px solid #cc0000;
+    color: #ff8888;
+  }
+  .answer-feedback strong { font-weight: 500; }
+
+  /* ── Article buttons (type6) ── */
+  .article-btns {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 0.6rem;
+  }
+
+  .article-btn {
+    padding: 1rem;
+    border-radius: 3px;
+    border: 1px solid #2e2e2e;
+    background: #1a1a1a;
+    font-family: 'Playfair Display', serif;
+    font-size: 1.4rem;
+    color: #888;
+    cursor: pointer;
+    transition: all 0.15s;
+    text-align: center;
+  }
+  .article-btn:hover:not(:disabled) { border-color: #ffcc00; color: #ffcc00; background: #1a1600; }
+  .article-btn.correct { border-color: #44aa44; color: #88dd88; background: #0a1a0a; }
+  .article-btn.wrong   { border-color: #cc0000; color: #ff8888; background: #1a0a0a; }
+  .article-btn.reveal  { border-color: #44aa44; color: #88dd88; background: #0a1a0a; }
+  .article-btn:disabled { cursor: default; opacity: 0.6; }
+
+  /* ── Mobile (iPhone 15: 390px logical) ── */
+  @media (max-width: 430px) {
+    .app {
+      padding: 1rem 1rem env(safe-area-inset-bottom, 1rem);
+    }
+
+    .header {
+      margin-bottom: 1.5rem;
+      align-items: center;
+    }
+
+    .logo-text { font-size: 1.15rem; }
+
+    .nav-btn {
+      font-size: 0.65rem;
+      padding: 0.5rem 0.55rem;
+      min-height: 44px;
+      display: flex;
+      align-items: center;
+    }
+
+    .card-scene { height: 210px; }
+
+    .card-word { font-size: 1.9rem; }
+    .card-translation { font-size: 1.45rem; }
+
+    /* 6 grade buttons -> 3+3 on mobile */
+    .grades {
+      grid-template-columns: repeat(3, 1fr);
+      gap: 0.4rem;
+    }
+
+    .grade-btn {
+      padding: 0.85rem 0.3rem;
+      min-height: 56px;
+    }
+
+    .grade-num { font-size: 1.2rem; }
+    .grade-label { font-size: 0.6rem; }
+
+    .explain-btn {
+      min-height: 44px;
+      font-size: 0.72rem;
+    }
+
+    /* Prevent iOS zoom on input focus (needs ≥16px) */
+    .field input, .field textarea {
+      font-size: 16px;
+    }
+
+    .add-form { padding: 1.25rem; }
+
+    .submit-btn {
+      width: 100%;
+      min-height: 48px;
+      font-size: 0.72rem;
+    }
+
+    /* List: stack german+trans vertically, keep days right */
+    .list-item {
+      grid-template-columns: 30px 1fr auto auto auto;
+      grid-template-rows: auto;
+    }
+
+    .explanation {
+      font-size: 0.75rem;
+      padding: 1rem;
+    }
+  }
+`;
+
+// ── Grade Config ─────────────────────────────────────────────────────────────
+const GRADES = [
+  { n: 0, label: "Nada" },
+  { n: 1, label: "Mal" },
+  { n: 2, label: "Difícil" },
+  { n: 3, label: "Ok" },
+  { n: 4, label: "Bien" },
+  { n: 5, label: "Fácil" },
+];
+
+// ── Card Face Components ─────────────────────────────────────────────────────
+function CardType1Front({ card }) {
+  return (
+    <div className="t1-front">
+      <div className="card-type-badge">Tipo 1</div>
+      {card.imageUrl
+        ? <img className="t1-front-img" src={mediaUrl(card.imageUrl)} alt="" />
+        : <div style={{fontSize:"0.75rem",color:"#444",border:"1px dashed #333",padding:"1.5rem 2rem",borderRadius:"4px"}}>sin imagen</div>
+      }
+      <div className="t1-front-hint">toca para voltear</div>
+    </div>
+  );
+}
+
+function CardType1Back({ card, onSpeak }) {
+  return (
+    <>
+      <div className="card-type-badge">Tipo 1</div>
+      <div className="card-hint">califica abajo</div>
+      <div className="t1-back-word">{card.german}</div>
+      {card.note && <div className="t1-back-note">{card.note}</div>}
+      <button
+        className="audio-replay-btn"
+        onClick={e => { e.stopPropagation(); onSpeak(); }}
+        title="Pronunciar"
+      >▶</button>
+    </>
+  );
+}
+
+function CardType2Front({ card }) {
+  // Highlight the main word in the example if it appears
+  const highlight = (text, word) => {
+    if (!text || !word) return text;
+    const bare = word.replace(/^(der|die|das|ein|eine)\s+/i, "").toLowerCase();
+    const regex = new RegExp(`(${bare})`, "gi");
+    const parts = text.split(regex);
+    return parts.map((p, i) =>
+      regex.test(p) ? <em key={i}>{p}</em> : p
+    );
+  };
+  return (
+    <>
+      <div className="card-type-badge">Tipo 2</div>
+      <div className="card-hint">toca para voltear</div>
+      <div className="t2-front">
+        <div className="t2-word">{card.german}</div>
+        {card.example && (
+          <>
+            <div className="t2-divider" />
+            <div className="t2-example">{highlight(card.example, card.german)}</div>
+          </>
+        )}
+      </div>
+    </>
+  );
+}
+
+function CardType2Back({ card }) {
+  return (
+    <>
+      <div className="card-type-badge">Tipo 2</div>
+      <div className="card-hint">califica abajo</div>
+      <div className="t2-back">
+        <div className="t2-translation">{card.translation}</div>
+        {card.note && <div className="card-note">{card.note}</div>}
+        <button
+          className="audio-replay-btn"
+          style={{marginTop:"0.5rem"}}
+          onClick={e => { e.stopPropagation(); speak(card.german); }}
+          title="Pronunciar"
+        >▶</button>
+        {card.exampleTranslation && (
+          <>
+            <div className="t2-divider" style={{marginTop:"0.5rem"}} />
+            <div className="t2-example-trans">"{card.exampleTranslation}"</div>
+          </>
+        )}
+      </div>
+    </>
+  );
+}
+
+
+function CardType4Front({ card }) {
+  return (
+    <div className="t4-front">
+      <div className="card-type-badge">Tipo 4</div>
+      <div className="t4-label">¿Cómo se dice en alemán?</div>
+      <div className="t4-word">{card.translation}</div>
+      {card.note && <div className="t4-note">{card.note}</div>}
+    </div>
+  );
+}
+
+function CardType5Front({ card }) {
+  const sentence = card.example || "";
+  const parts = sentence.split("___");
+  return (
+    <div className="t5-front">
+      <div className="card-type-badge">Tipo 5</div>
+      {card.imageUrl && <img className="t1-front-img" src={mediaUrl(card.imageUrl)} alt="" style={{position:"relative",inset:"auto",width:"auto",height:"45%",maxWidth:"80%",marginBottom:"0.25rem"}} />}
+      <div className="t5-sentence">
+        {parts.map((part, i) => (
+          <React.Fragment key={i}>
+            {part}
+            {i < parts.length - 1 && <span className="t5-blank">_____</span>}
+          </React.Fragment>
+        ))}
+      </div>
+      {card.note && <div className="t4-note" style={{fontSize:"0.62rem"}}>{card.note}</div>}
+    </div>
+  );
+}
+
+function CardType6Front({ card }) {
+  const bare = card.german.replace(/^(der|die|das)\s+/i, "");
+  return (
+    <div className="t6-front">
+      <div className="card-type-badge">Tipo 6</div>
+      {card.imageUrl && <img className="t1-front-img" src={mediaUrl(card.imageUrl)} alt="" style={{position:"relative",inset:"auto",width:"auto",height:"50%",maxWidth:"80%",marginBottom:"0.5rem"}} />}
+      <div className="t6-label">¿Cuál es el artículo?</div>
+      <div className="t6-word">___ {bare}</div>
+    </div>
+  );
+}
+
+// ── Interactive answer zones ──────────────────────────────────────────────────
+function AnswerZoneType4({ card, onGrade, onExplain, explaining, explanation }) {
+  const [value, setValue] = useState("");
+  const [result, setResult] = useState(null);
+  const inputRef = React.useRef(null);
+
+  React.useEffect(() => { inputRef.current?.focus(); }, []);
+
+  const check = () => {
+    if (!value.trim()) return;
+    const isCorrect = value.trim() === card.german;
+    setResult(isCorrect ? "correct" : "wrong");
+  };
+
+  const reveal = () => {
+    setResult("revealed");
+    speak(card.german);
+  };
+
+  return (
+    <div className="answer-zone">
+      <div className="answer-input-row">
+        <input
+          ref={inputRef}
+          className={`answer-input ${result === "wrong" ? "wrong" : result === "correct" ? "correct" : ""}`}
+          value={value}
+          onChange={e => setValue(e.target.value)}
+          onKeyDown={e => { if (e.key === "Enter" && !result) check(); }}
+          placeholder="Escribe en alemán…"
+          disabled={!!result}
+        />
+        <button className="answer-check-btn" onClick={check} disabled={!!result || !value.trim()}>OK</button>
+        <button className="reveal-btn" onClick={reveal} disabled={!!result}>Revelar</button>
+      </div>
+      {result === "correct" && (
+        <div className="answer-feedback correct" style={{display:"flex",alignItems:"center",gap:"0.5rem"}}>
+          <span>✓ ¡Correcto!</span>
+          <button className="audio-replay-btn" style={{width:"28px",height:"28px",fontSize:"0.8rem"}} onClick={() => speak(card.german)}>▶</button>
+        </div>
+      )}
+      {result === "wrong" && (
+        <div className="answer-feedback wrong" style={{display:"flex",alignItems:"center",gap:"0.5rem"}}>
+          <span>✗ La respuesta es: <strong>{card.german}</strong></span>
+          <button className="audio-replay-btn" style={{width:"28px",height:"28px",fontSize:"0.8rem",flexShrink:0}} onClick={() => speak(card.german)}>▶</button>
+        </div>
+      )}
+      {result === "revealed" && (
+        <div className="answer-feedback wrong" style={{display:"flex",flexDirection:"column",gap:"0.75rem"}}>
+          <div style={{display:"flex",alignItems:"center",gap:"0.5rem"}}>
+            <span>👁 La respuesta es: <strong>{card.german}</strong></span>
+            <button className="audio-replay-btn" style={{width:"28px",height:"28px",fontSize:"0.8rem",flexShrink:0}} onClick={() => speak(card.german)}>▶</button>
+          </div>
+          <button className="continuar-btn" onClick={() => onGrade(0)}>Continuar</button>
+        </div>
+      )}
+      {(result === "correct" || result === "wrong") && (
+        <div className="grades">
+          {GRADES.map(({ n, label }) => (
+            <button key={n} className={`grade-btn g${n}`} onClick={() => onGrade(n)}>
+              <span className="grade-num">{n}</span>
+              <span className="grade-label">{label}</span>
+            </button>
+          ))}
+        </div>
+      )}
+      {!!result && (
+        <>
+          <button className="explain-btn" onClick={onExplain} disabled={explaining}>
+            {explaining ? "Consultando IA…" : "✦ Explicar con IA"}
+          </button>
+          {explanation && <div className="explanation">{explanation}</div>}
+        </>
+      )}
+    </div>
+  );
+}
+
+function AnswerZoneType5({ card, onGrade, onExplain, explaining, explanation }) {
+  const [value, setValue] = useState("");
+  const [result, setResult] = useState(null);
+  const inputRef = React.useRef(null);
+
+  React.useEffect(() => { inputRef.current?.focus(); }, []);
+
+  const fullSentence = (card.example || "").replace("___", card.german);
+
+  const check = () => {
+    if (!value.trim()) return;
+    const isCorrect = value.trim() === card.german;
+    setResult(isCorrect ? "correct" : "wrong");
+  };
+
+  const reveal = () => {
+    setResult("revealed");
+    speak(card.german);
+  };
+
+  return (
+    <div className="answer-zone">
+      <div className="answer-input-row">
+        <input
+          ref={inputRef}
+          className={`answer-input ${result === "wrong" ? "wrong" : result === "correct" ? "correct" : ""}`}
+          value={value}
+          onChange={e => setValue(e.target.value)}
+          onKeyDown={e => { if (e.key === "Enter" && !result) check(); }}
+          placeholder="Completa el espacio…"
+          disabled={!!result}
+        />
+        <button className="answer-check-btn" onClick={check} disabled={!!result || !value.trim()}>OK</button>
+        <button className="reveal-btn" onClick={reveal} disabled={!!result}>Revelar</button>
+      </div>
+      {result === "correct" && (
+        <div className="answer-feedback correct" style={{display:"flex",alignItems:"center",gap:"0.5rem"}}>
+          <span>✓ ¡Correcto! — {fullSentence}</span>
+          <button className="audio-replay-btn" style={{width:"28px",height:"28px",fontSize:"0.8rem",flexShrink:0}} onClick={() => speak(card.german)}>▶</button>
+        </div>
+      )}
+      {result === "wrong" && (
+        <div className="answer-feedback wrong" style={{display:"flex",alignItems:"center",gap:"0.5rem"}}>
+          <span>✗ Era: <strong>{card.german}</strong> — {fullSentence}</span>
+          <button className="audio-replay-btn" style={{width:"28px",height:"28px",fontSize:"0.8rem",flexShrink:0}} onClick={() => speak(card.german)}>▶</button>
+        </div>
+      )}
+      {result === "revealed" && (
+        <div className="answer-feedback wrong" style={{display:"flex",flexDirection:"column",gap:"0.75rem"}}>
+          <div style={{display:"flex",alignItems:"center",gap:"0.5rem"}}>
+            <span>👁 <strong>{card.german}</strong> — {fullSentence}</span>
+            <button className="audio-replay-btn" style={{width:"28px",height:"28px",fontSize:"0.8rem",flexShrink:0}} onClick={() => speak(card.german)}>▶</button>
+          </div>
+          <button className="continuar-btn" onClick={() => onGrade(0)}>Continuar</button>
+        </div>
+      )}
+      {(result === "correct" || result === "wrong") && (
+        <div className="grades">
+          {GRADES.map(({ n, label }) => (
+            <button key={n} className={`grade-btn g${n}`} onClick={() => onGrade(n)}>
+              <span className="grade-num">{n}</span>
+              <span className="grade-label">{label}</span>
+            </button>
+          ))}
+        </div>
+      )}
+      {!!result && (
+        <>
+          <button className="explain-btn" onClick={onExplain} disabled={explaining}>
+            {explaining ? "Consultando IA…" : "✦ Explicar con IA"}
+          </button>
+          {explanation && <div className="explanation">{explanation}</div>}
+        </>
+      )}
+    </div>
+  );
+}
+
+function AnswerZoneType6({ card, onGrade, onExplain, explaining, explanation }) {
+  const [picked, setPicked] = useState(null);
+  const correct = card.german.match(/^(der|die|das)/i)?.[1]?.toLowerCase() || "";
+
+  const choose = (article) => {
+    if (picked) return;
+    setPicked(article);
+  };
+
+  const btnClass = (art) => {
+    if (!picked) return "";
+    if (art === correct) return "reveal";
+    if (art === picked && picked !== correct) return "wrong";
+    return "";
+  };
+
+  return (
+    <div className="answer-zone">
+      <div className="article-btns">
+        {["der", "die", "das"].map(art => (
+          <button
+            key={art}
+            className={`article-btn ${btnClass(art)}`}
+            onClick={() => choose(art)}
+            disabled={!!picked}
+          >
+            {art}
+          </button>
+        ))}
+      </div>
+      {picked && (
+        <div className={`answer-feedback ${picked === correct ? "correct" : "wrong"}`} style={{display:"flex",flexDirection:"column",gap:"0.75rem"}}>
+          <div style={{display:"flex",alignItems:"center",gap:"0.5rem"}}>
+            <span>{picked === correct ? `✓ Correcto — ${card.german}` : `✗ Es ${correct} — ${card.german}`}</span>
+            <button className="audio-replay-btn" style={{width:"28px",height:"28px",fontSize:"0.8rem",flexShrink:0}} onClick={() => speak(card.german)}>▶</button>
+          </div>
+          <button className="continuar-btn" onClick={() => onGrade(picked === correct ? 5 : 1)}>Continuar</button>
+        </div>
+      )}
+      {picked && (
+        <>
+          <button className="explain-btn" onClick={onExplain} disabled={explaining}>
+            {explaining ? "Consultando IA…" : "✦ Explicar con IA"}
+          </button>
+          {explanation && <div className="explanation">{explanation}</div>}
+        </>
+      )}
+    </div>
+  );
+}
+
+// ── Components ───────────────────────────────────────────────────────────────
+function StudyView({ cards, onGrade }) {
+  const [flipped, setFlipped] = useState(false);
+  const [explaining, setExplaining] = useState(false);
+  const [explanation, setExplanation] = useState(null);
+  const [interactiveKey, setInteractiveKey] = useState(0);
+  const [transitioning, setTransitioning] = useState(false);
+
+  // Stable shuffled due list — only recomputes when card set changes
+  const due = React.useMemo(() => {
+    const list = cards.filter(c => c.nextReview <= Date.now());
+    for (let i = list.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [list[i], list[j]] = [list[j], list[i]];
+    }
+    return list;
+  }, [cards.map(c => c.id + c.nextReview).join(",")]);
+
+  const card = due[0];
+
+  const speakCurrent = React.useCallback((german) => {
+    if (german) speak(german);
+  }, []);
+
+  // Auto-speak on flip for type1 and type2
+  React.useEffect(() => {
+    if (flipped && (card?.cardType === "type1" || card?.cardType === "type2")) {
+      const g = card.german;
+      const t = setTimeout(() => speakCurrent(g), 350);
+      return () => clearTimeout(t);
+    }
+  }, [flipped]);
+
+  const handleGrade = (g) => {
+    if (transitioning) return;
+    window.speechSynthesis?.cancel();
+
+    const isFlipType = card?.cardType === "type1" || card?.cardType === "type2";
+
+    if (isFlipType && flipped) {
+      // Flip back to front, then commit grade after animation
+      setTransitioning(true);
+      setFlipped(false);
+      setTimeout(() => {
+        onGrade(card.id, sm2(card, g));
+        setExplanation(null);
+        setInteractiveKey(k => k + 1);
+        setTransitioning(false);
+      }, 560);
+    } else {
+      // Interactive types or non-flipped: advance immediately, no animation needed
+      onGrade(card.id, sm2(card, g));
+      setFlipped(false);
+      setExplanation(null);
+      setInteractiveKey(k => k + 1);
+    }
+  };
+
+  const handleExplain = async () => {
+    setExplaining(true);
+    try { setExplanation(await fetchExplanation(card)); }
+    catch { setExplanation("Error al contactar la API."); }
+    setExplaining(false);
+  };
+
+  if (!cards.length) return (
+    <div className="deck-empty">
+      <p>No hay tarjetas.<br />Ve a <strong>+ Agregar</strong> para crear tu primera.</p>
+    </div>
+  );
+
+  if (!due.length) return (
+    <div className="deck-empty">
+      <p>Sin repasos pendientes.<br />Vuelve mañana — el sistema hace el resto.</p>
+    </div>
+  );
+
+  const cardType = card.cardType || "type1";
+  const isInteractive = ["type4", "type5", "type6"].includes(cardType);
+  const isFlipType    = ["type1", "type2"].includes(cardType);
+
+  return (
+    <div>
+      <div className="session-info">
+        <span>Pendientes: <strong>{due.length}</strong></span>
+        <span>Total: <strong>{cards.length}</strong></span>
+      </div>
+
+      {/* ── Flip card (types 1 & 2) ── */}
+      {isFlipType && (
+        <div className="card-scene" onClick={() => !transitioning && setFlipped(f => !f)}>
+          <div className={`card-inner ${flipped ? "flipped" : ""}`}>
+            <div className="card-face front">
+              {cardType === "type1" && <CardType1Front card={card} />}
+              {cardType === "type2" && <CardType2Front card={card} />}
+            </div>
+            <div className="card-face back">
+              {cardType === "type1" && <CardType1Back card={card} onSpeak={speakCurrent} />}
+              {cardType === "type2" && <CardType2Back card={card} />}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Interactive card front (types 4, 5, 6) — plain, no flip ── */}
+      {isInteractive && (
+        <div className="card-scene">
+          <div className="card-static">
+            {cardType === "type4" && <CardType4Front card={card} />}
+            {cardType === "type5" && <CardType5Front card={card} />}
+            {cardType === "type6" && <CardType6Front card={card} />}
+          </div>
+        </div>
+      )}
+
+      {/* ── Answer zones for interactive types ── */}
+      {isInteractive && (
+        <React.Fragment key={interactiveKey}>
+          {cardType === "type4" && <AnswerZoneType4 card={card} onGrade={handleGrade} onExplain={handleExplain} explaining={explaining} explanation={explanation} />}
+          {cardType === "type5" && <AnswerZoneType5 card={card} onGrade={handleGrade} onExplain={handleExplain} explaining={explaining} explanation={explanation} />}
+          {cardType === "type6" && <AnswerZoneType6 card={card} onGrade={handleGrade} onExplain={handleExplain} explaining={explaining} explanation={explanation} />}
+        </React.Fragment>
+      )}
+
+      {/* ── Grade + explain for flip types ── */}
+      {isFlipType && flipped && (
+        <>
+          <div className="grades">
+            {GRADES.map(({ n, label }) => (
+              <button key={n} className={`grade-btn g${n}`} onClick={() => handleGrade(n)}>
+                <span className="grade-num">{n}</span>
+                <span className="grade-label">{label}</span>
+              </button>
+            ))}
+          </div>
+          <button className="explain-btn" onClick={handleExplain} disabled={explaining}>
+            {explaining ? "Consultando IA…" : "✦ Explicar con IA"}
+          </button>
+          {explanation && <div className="explanation">{explanation}</div>}
+        </>
+      )}
+    </div>
+  );
+}
+
+function AddView({ onAdd, onBulkAdd }) {
+  const [tab, setTab] = useState("single");
+
+  const [cardType, setCardType] = useState("type1");
+  const [german, setGerman] = useState("");
+  const [translation, setTranslation] = useState("");
+  const [note, setNote] = useState("");
+  const [example, setExample] = useState("");
+  const [exampleTranslation, setExampleTranslation] = useState("");
+  const [saved, setSaved] = useState(false);
+  const [imageUrl, setImageUrl] = useState(null);
+  const [audioUrl, setAudioUrl] = useState(null);
+  const [uploading, setUploading] = useState(null);
+  const [imageMode, setImageMode] = useState("file");
+  const [audioMode, setAudioMode] = useState("file");
+  const [imageUrlInput, setImageUrlInput] = useState("");
+  const [audioUrlInput, setAudioUrlInput] = useState("");
+
+  const [json, setJson] = useState("");
+  const [bulkStatus, setBulkStatus] = useState(null);
+  const [replaceMode, setReplaceMode] = useState(true);
+
+  const handleSubmit = () => {
+    if (!german.trim() || !translation.trim()) return;
+    onAdd({ cardType, german: german.trim(), translation: translation.trim(), note: note.trim(), example: example.trim(), exampleTranslation: exampleTranslation.trim(), imageUrl, audioUrl });
+    setGerman(""); setTranslation(""); setNote("");
+    setImageUrl(null); setAudioUrl(null); setExample(""); setExampleTranslation("");
+    setSaved(true);
+    setTimeout(() => setSaved(false), 2000);
+  };
+
+  const handleMediaUpload = async (e, type) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    setUploading(type);
+    try {
+      const { url } = await uploadMedia(file);
+      if (type === "image") setImageUrl(url);
+      else setAudioUrl(url);
+    } catch { alert("Error al subir archivo."); }
+    setUploading(null);
+    e.target.value = "";
+  };
+
+  const handleRemoveMedia = async (type) => {
+    const url = type === "image" ? imageUrl : audioUrl;
+    if (url) await deleteMedia(url);
+    if (type === "image") setImageUrl(null);
+    else setAudioUrl(null);
+  };
+
+  const handleUrlSet = (type, val) => {
+    const trimmed = val.trim();
+    if (!trimmed) return;
+    if (type === "image") { setImageUrl(trimmed); setImageUrlInput(""); }
+    else { setAudioUrl(trimmed); setAudioUrlInput(""); }
+  };
+
+  const handleRemoveMediaUrl = (type) => {
+    // external URLs don't need server deletion
+    const url = type === "image" ? imageUrl : audioUrl;
+    const isExternal = url && (url.startsWith("http://") || url.startsWith("https://"));
+    if (!isExternal && url) deleteMedia(url);
+    if (type === "image") { setImageUrl(null); setImageUrlInput(""); }
+    else { setAudioUrl(null); setAudioUrlInput(""); }
+  };
+
+  const handleBulk = () => {
+    setBulkStatus(null);
+    let parsed;
+    try { parsed = JSON.parse(json.trim()); }
+    catch { setBulkStatus({ ok: false, msg: "JSON inválido. Revisa la sintaxis." }); return; }
+    if (!Array.isArray(parsed)) {
+      setBulkStatus({ ok: false, msg: "Debe ser un array [ ... ]." }); return;
+    }
+    const valid = parsed.filter(x => x.german?.trim() && x.translation?.trim());
+    if (!valid.length) {
+      setBulkStatus({ ok: false, msg: 'Ningún objeto tiene "german" y "translation".' }); return;
+    }
+    onBulkAdd(valid, replaceMode);
+    setJson("");
+    setBulkStatus({ ok: true, msg: `✓ ${valid.length} tarjeta${valid.length !== 1 ? "s" : ""} ${replaceMode ? "importada" : "agregada"}${valid.length !== 1 ? "s" : ""}.` });
+  };
+
+  return (
+    <div className="add-form">
+      <div className="add-tabs">
+        <button className={`add-tab ${tab === "single" ? "active" : ""}`} onClick={() => setTab("single")}>Una tarjeta</button>
+        <button className={`add-tab ${tab === "bulk" ? "active" : ""}`} onClick={() => setTab("bulk")}>Importar JSON</button>
+      </div>
+
+      {tab === "single" && (
+        <>
+          <div className="type-selector" style={{flexWrap:"wrap"}}>
+            <button className={`type-btn ${cardType === "type1" ? "active" : ""}`} onClick={() => setCardType("type1")}>Tipo 1<br/>Imagen → Palabra</button>
+            <button className={`type-btn ${cardType === "type2" ? "active" : ""}`} onClick={() => setCardType("type2")}>Tipo 2<br/>Ejemplo → Traducción</button>
+            <button className={`type-btn ${cardType === "type4" ? "active" : ""}`} onClick={() => setCardType("type4")}>Tipo 4<br/>ES → escribir DE</button>
+            <button className={`type-btn ${cardType === "type5" ? "active" : ""}`} onClick={() => setCardType("type5")}>Tipo 5<br/>Completar</button>
+            <button className={`type-btn ${cardType === "type6" ? "active" : ""}`} onClick={() => setCardType("type6")}>Tipo 6<br/>Artículo</button>
+          </div>
+          <div className="field">
+            <label>Alemán</label>
+            <input value={german} onChange={e => setGerman(e.target.value)} placeholder="z.B. der Schlüssel" />
+          </div>
+          <div className="field">
+            <label>Traducción</label>
+            <input value={translation} onChange={e => setTranslation(e.target.value)} placeholder="la llave" />
+          </div>
+          <div className="field">
+            <label>Nota (opcional)</label>
+            <textarea value={note} onChange={e => setNote(e.target.value)} placeholder="artículo, ejemplo, truco…" />
+          </div>
+          {(cardType === "type2" || cardType === "type5") && (
+            <>
+              <div className="field">
+                <label>{cardType === "type5" ? 'Oración con ___ (espacio en blanco)' : 'Ejemplo en alemán'}</label>
+                <input value={example} onChange={e => setExample(e.target.value)} placeholder={cardType === "type5" ? 'Der ___ läuft schnell.' : 'Der Hund läuft schnell.'} />
+              </div>
+              <div className="field">
+                <label>Traducción del ejemplo</label>
+                <input value={exampleTranslation} onChange={e => setExampleTranslation(e.target.value)} placeholder="El perro corre rápido." />
+              </div>
+            </>
+          )}
+          <div className="field">
+            <label>
+              Imagen (opcional) —{" "}
+              <button className="mode-toggle" onClick={() => { setImageMode(m => m === "file" ? "url" : "file"); setImageUrl(null); setImageUrlInput(""); }}>
+                {imageMode === "file" ? "usar URL" : "subir archivo"}
+              </button>
+            </label>
+            {!imageUrl ? (
+              imageMode === "file" ? (
+                <div className="media-upload-row">
+                  <label className="media-upload-btn">
+                    {uploading === "image" ? <span className="media-uploading">Subiendo…</span> : "＋ Subir imagen"}
+                    <input type="file" accept="image/*" style={{display:"none"}} onChange={e => handleMediaUpload(e, "image")} disabled={!!uploading} />
+                  </label>
+                </div>
+              ) : (
+                <div className="url-input-row">
+                  <input
+                    className="url-input"
+                    value={imageUrlInput}
+                    onChange={e => setImageUrlInput(e.target.value)}
+                    placeholder="https://upload.wikimedia.org/…"
+                    onKeyDown={e => e.key === "Enter" && handleUrlSet("image", imageUrlInput)}
+                  />
+                  <button className="url-set-btn" onClick={() => handleUrlSet("image", imageUrlInput)}>OK</button>
+                </div>
+              )
+            ) : (
+              <div className="media-preview">
+                <img src={mediaUrl(imageUrl)} alt="" />
+                <span className="media-preview-label">{imageUrl.startsWith("http") ? "URL externa" : imageUrl.split("/").pop()}</span>
+                <button className="media-remove" onClick={() => handleRemoveMediaUrl("image")}>×</button>
+              </div>
+            )}
+          </div>
+
+          <div className="field">
+            <label>
+              Audio (opcional) —{" "}
+              <button className="mode-toggle" onClick={() => { setAudioMode(m => m === "file" ? "url" : "file"); setAudioUrl(null); setAudioUrlInput(""); }}>
+                {audioMode === "file" ? "usar URL" : "subir archivo"}
+              </button>
+            </label>
+            {!audioUrl ? (
+              audioMode === "file" ? (
+                <div className="media-upload-row">
+                  <label className="media-upload-btn">
+                    {uploading === "audio" ? <span className="media-uploading">Subiendo…</span> : "＋ Subir audio"}
+                    <input type="file" accept="audio/*" style={{display:"none"}} onChange={e => handleMediaUpload(e, "audio")} disabled={!!uploading} />
+                  </label>
+                </div>
+              ) : (
+                <div className="url-input-row">
+                  <input
+                    className="url-input"
+                    value={audioUrlInput}
+                    onChange={e => setAudioUrlInput(e.target.value)}
+                    placeholder="https://forvo.com/… o link directo a .mp3"
+                    onKeyDown={e => e.key === "Enter" && handleUrlSet("audio", audioUrlInput)}
+                  />
+                  <button className="url-set-btn" onClick={() => handleUrlSet("audio", audioUrlInput)}>OK</button>
+                </div>
+              )
+            ) : (
+              <div className="media-preview">
+                <span className="media-preview-label">{audioUrl.startsWith("http") ? "URL externa" : audioUrl.split("/").pop()}</span>
+                <audio src={mediaUrl(audioUrl)} controls style={{height:"24px", accentColor:"#cc0000"}} />
+                <button className="media-remove" onClick={() => handleRemoveMediaUrl("audio")}>×</button>
+              </div>
+            )}
+          </div>
+
+          <button className="submit-btn" onClick={handleSubmit}>Agregar tarjeta</button>
+          {saved && <div className="success-msg">✓ Guardada</div>}
+        </>
+      )}
+
+      {tab === "bulk" && (
+        <>
+          <div className="field">
+            <label>Array JSON</label>
+            <textarea
+              className="bulk-textarea"
+              value={json}
+              onChange={e => setJson(e.target.value)}
+              placeholder={`[\n  { "german": "der Hund", "translation": "el perro", "note": "masc." },\n  { "german": "die Katze", "translation": "la gata" }\n]`}
+            />
+          </div>
+          <div className="bulk-schema">
+            Campos: <code>german</code> ✦ <code>translation</code> ✦ <code>note</code> (opcional)
+          </div>
+          <label className="bulk-replace-row">
+            <input type="checkbox" checked={replaceMode} onChange={e => setReplaceMode(e.target.checked)} />
+            <span>Reemplazar todo el mazo (desactiva para agregar encima)</span>
+          </label>
+          <button className="submit-btn" onClick={handleBulk}>Importar</button>
+          {bulkStatus && (
+            <div className={bulkStatus.ok ? "success-msg" : "error-msg"}>{bulkStatus.msg}</div>
+          )}
+        </>
+      )}
+    </div>
+  );
+}
+
+
+// ── Stats View ────────────────────────────────────────────────────────────────
+function StatsView({ cards }) {
+  const now = Date.now();
+  const DAY = 86400000;
+
+  const buckets = [
+    { label: "Nuevas",   color: "#555",    count: 0 },
+    { label: "Hoy",      color: "#cc0000", count: 0 },
+    { label: "Mañana",   color: "#dd6600", count: 0 },
+    { label: "3–7 días", color: "#bb9900", count: 0 },
+    { label: "8–30 días",color: "#888800", count: 0 },
+    { label: "+30 días", color: "#446600", count: 0 },
+  ];
+
+  for (const c of cards) {
+    const diff = c.nextReview - now;
+    const days = diff / DAY;
+    if (c.repetitions === 0)       buckets[0].count++;
+    else if (days <= 0)            buckets[1].count++;
+    else if (days <= 1)            buckets[2].count++;
+    else if (days <= 7)            buckets[3].count++;
+    else if (days <= 30)           buckets[4].count++;
+    else                           buckets[5].count++;
+  }
+
+  const max = Math.max(...buckets.map(b => b.count), 1);
+  const total = cards.length;
+
+  if (!total) return (
+    <div className="deck-empty">
+      <p>Sin tarjetas aún.<br />Ve a <strong>+ Agregar</strong> para empezar.</p>
+    </div>
+  );
+
+  return (
+    <div className="stats-view">
+      <div className="stats-header">
+        <div className="stats-title">Estado del mazo</div>
+        <div className="stats-total">{total} tarjeta{total !== 1 ? "s" : ""} en total</div>
+      </div>
+
+      <div className="stats-chart">
+        {buckets.map((b, i) => {
+          const pct = max > 0 ? (b.count / max) * 100 : 0;
+          const ofTotal = total > 0 ? Math.round((b.count / total) * 100) : 0;
+          return (
+            <div key={i} className="stats-row">
+              <div className="stats-row-label">{b.label}</div>
+              <div className="stats-bar-wrap">
+                <div
+                  className="stats-bar"
+                  style={{ width: `${pct}%`, background: b.color }}
+                />
+              </div>
+              <div className="stats-row-count">
+                <span className="stats-n" style={{ color: b.color }}>{b.count}</span>
+                <span className="stats-pct">{ofTotal}%</span>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+
+      <div className="stats-footer">
+        <div className="stats-kpi">
+          <div className="kpi-val" style={{ color: "#cc0000" }}>
+            {buckets[0].count + buckets[1].count}
+          </div>
+          <div className="kpi-label">para estudiar hoy</div>
+        </div>
+        <div className="stats-kpi">
+          <div className="kpi-val" style={{ color: "#ffcc00" }}>
+            {(cards.filter(c => c.repetitions > 0 && c.interval >= 21).length)}
+          </div>
+          <div className="kpi-label">maduras (≥21 días)</div>
+        </div>
+        <div className="stats-kpi">
+          <div className="kpi-val" style={{ color: "#aaa" }}>
+            {total > 0 ? (cards.reduce((s,c) => s + c.easiness, 0) / total).toFixed(2) : "—"}
+          </div>
+          <div className="kpi-label">easiness promedio</div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+
+function ImagePreviewModal({ card, onSave, onClose }) {
+  const [urlInput, setUrlInput] = useState(card.imageUrl || "");
+  const [status, setStatus] = useState(null); // null | "ok" | "err"
+  const [broken, setBroken] = useState(false);
+
+  const handleSave = () => {
+    const trimmed = urlInput.trim();
+    onSave({ ...card, imageUrl: trimmed || null });
+    setStatus("ok");
+    setTimeout(onClose, 800);
+  };
+
+  return (
+    <div className="img-preview-overlay" onClick={onClose}>
+      <div className="img-preview-dialog" onClick={e => e.stopPropagation()}>
+        <div className="img-preview-header">
+          <div className="img-preview-word">{card.german}</div>
+          <button className="img-preview-close" onClick={onClose}>×</button>
+        </div>
+
+        <div className="img-preview-frame">
+          {card.imageUrl && !broken ? (
+            <img
+              src={mediaUrl(card.imageUrl)}
+              alt=""
+              onError={() => setBroken(true)}
+            />
+          ) : (
+            <div className="img-preview-broken">
+              <div className="img-preview-broken-icon">🖼</div>
+              <div>{broken ? "Imagen rota" : "Sin imagen"}</div>
+            </div>
+          )}
+        </div>
+
+        <div className="img-preview-url-row">
+          <input
+            className="img-preview-url-input"
+            value={urlInput}
+            onChange={e => { setUrlInput(e.target.value); setBroken(false); setStatus(null); }}
+            placeholder="https://upload.wikimedia.org/…"
+            onKeyDown={e => e.key === "Enter" && handleSave()}
+          />
+          <button className="img-preview-save-btn" onClick={handleSave}>
+            Guardar
+          </button>
+        </div>
+
+        {status === "ok" && <div className="img-preview-status ok">✓ Guardado</div>}
+      </div>
+    </div>
+  );
+}
+
+
+function Toast({ msg }) {
+  return msg ? <div className="toast">{msg}</div> : null;
+}
+
+function CardPreviewModal({ card, onClose }) {
+  const type = card.cardType || "type1";
+  const article = card.german.match(/^(der|die|das)/i)?.[1] || "";
+  const bare = card.german.replace(/^(der|die|das)\s+/i, "");
+  const fullSentence = (card.example || "").replace("___", card.german);
+
+  return (
+    <div className="img-preview-overlay" onClick={onClose}>
+      <div className="card-preview-dialog" onClick={e => e.stopPropagation()}>
+        <div className="img-preview-header">
+          <div className="img-preview-word">
+            <span style={{fontSize:"0.6rem",color:"#555",letterSpacing:"0.1em",textTransform:"uppercase",marginRight:"0.5rem"}}>
+              Tipo {type.replace("type","")}
+            </span>
+            {card.german}
+          </div>
+          <button className="img-preview-close" onClick={onClose}>×</button>
+        </div>
+
+        {/* Frente */}
+        <div className="card-preview-side">
+          <div className="card-preview-label">Frente</div>
+          {type === "type1" && (
+            <div className="card-preview-body">
+              {card.imageUrl
+                ? <img src={mediaUrl(card.imageUrl)} alt="" className="card-preview-img" onError={e => e.target.style.display="none"} />
+                : <div className="img-preview-broken"><div className="img-preview-broken-icon">🖼</div><div>Sin imagen</div></div>
+              }
+            </div>
+          )}
+          {type === "type2" && (
+            <div className="card-preview-body">
+              <div className="card-preview-big">{card.german}</div>
+              {card.example && <div className="card-preview-example">{card.example}</div>}
+            </div>
+          )}
+          {type === "type4" && (
+            <div className="card-preview-body">
+              <div className="card-preview-trans">{card.translation}</div>
+              {card.note && <div className="card-preview-note">{card.note}</div>}
+            </div>
+          )}
+          {type === "type5" && (
+            <div className="card-preview-body">
+              <div className="card-preview-example">{(card.example||"").replace("___","_____")}</div>
+            </div>
+          )}
+          {type === "type6" && (
+            <div className="card-preview-body">
+              {card.imageUrl && (
+                <img
+                  src={mediaUrl(card.imageUrl)}
+                  alt=""
+                  className="card-preview-img"
+                  onError={e => e.target.style.display="none"}
+                />
+              )}
+              <div className="card-preview-big" style={{color:"#888"}}>___ {bare}</div>
+            </div>
+          )}
+        </div>
+
+        {/* Dorso */}
+        <div className="card-preview-side">
+          <div className="card-preview-label">Dorso</div>
+          <div className="card-preview-body">
+            {(type === "type1" || type === "type6") && (
+              <>
+                <div className="card-preview-big">{card.german}</div>
+                {card.note && <div className="card-preview-note">{card.note}</div>}
+              </>
+            )}
+            {type === "type2" && (
+              <>
+                <div className="card-preview-trans">{card.translation}</div>
+                {card.exampleTranslation && <div className="card-preview-example" style={{color:"#666"}}>"{card.exampleTranslation}"</div>}
+              </>
+            )}
+            {(type === "type4" || type === "type5") && (
+              <>
+                <div className="card-preview-big">{card.german}</div>
+                {type === "type5" && fullSentence && <div className="card-preview-example">{fullSentence}</div>}
+              </>
+            )}
+          </div>
+        </div>
+
+        <button className="continuar-btn" style={{alignSelf:"center"}} onClick={onClose}>Cerrar</button>
+      </div>
+    </div>
+  );
+}
+
+function EditModal({ card, onSave, onClose }) {
+  const [cardType, setCardType] = useState(card.cardType || "type1");
+  const [german, setGerman] = useState(card.german);
+  const [translation, setTranslation] = useState(card.translation);
+  const [note, setNote] = useState(card.note || "");
+  const [example, setExample] = useState(card.example || "");
+  const [exampleTranslation, setExampleTranslation] = useState(card.exampleTranslation || "");
+  const [imageUrl, setImageUrl] = useState(card.imageUrl || "");
+  const [audioUrl, setAudioUrl] = useState(card.audioUrl || "");
+
+  const handleSave = () => {
+    if (!german.trim() || !translation.trim()) return;
+    onSave({
+      ...card,
+      cardType,
+      german: german.trim(),
+      translation: translation.trim(),
+      note: note.trim(),
+      example: example.trim(),
+      exampleTranslation: exampleTranslation.trim(),
+      imageUrl: imageUrl.trim() || null,
+      audioUrl: audioUrl.trim() || null,
+    });
+  };
+
+  return (
+    <div className="confirm-overlay" onClick={onClose}>
+      <div className="edit-dialog" onClick={e => e.stopPropagation()}>
+        <div className="confirm-title">Editar tarjeta</div>
+        <div className="edit-fields">
+          <div className="type-selector" style={{flexWrap:"wrap"}}>
+            <button className={`type-btn ${cardType === "type1" ? "active" : ""}`} onClick={() => setCardType("type1")}>Tipo 1</button>
+            <button className={`type-btn ${cardType === "type2" ? "active" : ""}`} onClick={() => setCardType("type2")}>Tipo 2</button>
+            <button className={`type-btn ${cardType === "type4" ? "active" : ""}`} onClick={() => setCardType("type4")}>Tipo 4</button>
+            <button className={`type-btn ${cardType === "type5" ? "active" : ""}`} onClick={() => setCardType("type5")}>Tipo 5</button>
+            <button className={`type-btn ${cardType === "type6" ? "active" : ""}`} onClick={() => setCardType("type6")}>Tipo 6</button>
+          </div>
+          <div className="field">
+            <label>Alemán</label>
+            <input value={german} onChange={e => setGerman(e.target.value)} />
+          </div>
+          <div className="field">
+            <label>Traducción</label>
+            <input value={translation} onChange={e => setTranslation(e.target.value)} />
+          </div>
+          <div className="field">
+            <label>Nota</label>
+            <input value={note} onChange={e => setNote(e.target.value)} placeholder="artículo, truco…" />
+          </div>
+          {cardType === "type2" && (
+            <>
+              <div className="field">
+                <label>Ejemplo en alemán</label>
+                <input value={example} onChange={e => setExample(e.target.value)} />
+              </div>
+              <div className="field">
+                <label>Traducción del ejemplo</label>
+                <input value={exampleTranslation} onChange={e => setExampleTranslation(e.target.value)} />
+              </div>
+            </>
+          )}
+          <div className="field">
+            <label>URL imagen</label>
+            <input value={imageUrl} onChange={e => setImageUrl(e.target.value)} placeholder="https://…" />
+          </div>
+          <div className="field">
+            <label>URL audio</label>
+            <input value={audioUrl} onChange={e => setAudioUrl(e.target.value)} placeholder="https://…" />
+          </div>
+        </div>
+        <div className="confirm-actions">
+          <button className="confirm-cancel" onClick={onClose}>Cancelar</button>
+          <button className="confirm-ok" onClick={handleSave}>Guardar</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function ListItemThumb({ card, onClick }) {
+  const [broken, setBroken] = useState(false);
+  // Reset broken state whenever the URL changes
+  React.useEffect(() => { setBroken(false); }, [card.imageUrl]);
+  if (!card.imageUrl || broken) {
+    return (
+      <button className="preview-btn" onClick={onClick} title="Sin imagen — click para agregar">
+        <div className="preview-thumb-empty">+</div>
+      </button>
+    );
+  }
+  return (
+    <button className="preview-btn" onClick={onClick} title="Vista previa de imagen">
+      <img
+        className="preview-thumb"
+        src={mediaUrl(card.imageUrl)}
+        alt=""
+        onError={() => setBroken(true)}
+      />
+    </button>
+  );
+}
+
+function ListView({ cards, onDelete, onDeleteAll, onEdit }) {
+  const [confirming, setConfirming] = useState(false);
+
+  const handleExport = () => {
+    const data = JSON.stringify(cards, null, 2);
+    const blob = new Blob([data], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    const date = new Date().toISOString().slice(0, 10);
+    a.href = url;
+    a.download = `deutschkarten-backup-${date}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+  const [query, setQuery] = useState("");
+  const [editingCard, setEditingCard] = useState(null);
+  const [previewCard, setPreviewCard] = useState(null);
+  const [cardPreview, setCardPreview] = useState(null);
+  const [toast, setToast] = useState(null);
+  const toastRef = React.useRef(null);
+  const [imgFilter, setImgFilter] = useState("all"); // "all" | "broken" | "ok"
+
+  const showToast = (msg) => {
+    if (toastRef.current) clearTimeout(toastRef.current);
+    setToast(msg);
+    toastRef.current = setTimeout(() => setToast(null), 2200);
+  };
+
+  const withImg  = cards.filter(c => c.cardType === "type1" || c.cardType === "type5" || c.cardType === "type6");
+
+  const filtered = [...cards]
+    .sort((a, b) => a.nextReview - b.nextReview)
+    .filter(c => {
+      if (query.trim()) {
+        const q = query.toLowerCase();
+        if (!c.german.toLowerCase().includes(q) && !c.translation.toLowerCase().includes(q) && !(c.note||"").toLowerCase().includes(q)) return false;
+      }
+      if (imgFilter === "broken") return (c.cardType === "type1" || c.cardType === "type5" || c.cardType === "type6") && !c.imageUrl;
+      if (imgFilter === "ok")     return (c.cardType === "type1" || c.cardType === "type5" || c.cardType === "type6") && !!c.imageUrl;
+      return true;
+    });
+
+  const brokenCount = withImg.filter(c => !c.imageUrl).length;
+
+  return (
+    <div>
+      <div className="list-header">
+        <div className="list-title">Todas las tarjetas</div>
+        <div className="list-header-right">
+          <div className="list-count">{cards.length} total</div>
+          {cards.length > 0 && (
+            <>
+              <button className="export-btn" onClick={handleExport} title="Exportar backup JSON">↓ Backup</button>
+              <button className="delete-all-btn" onClick={() => setConfirming(true)}>Borrar todo</button>
+            </>
+          )}
+        </div>
+      </div>
+
+      <div className="list-search-wrap">
+        <input
+          className="list-search"
+          value={query}
+          onChange={e => setQuery(e.target.value)}
+          placeholder="Buscar por palabra, traducción o nota…"
+        />
+        {query && <button className="list-search-clear" onClick={() => setQuery("")}>×</button>}
+      </div>
+
+      <div className="list-filter-row">
+        <button className={`list-filter-btn ${imgFilter==="all"?"active":""}`} onClick={() => setImgFilter("all")}>Todas</button>
+        <button className={`list-filter-btn ${imgFilter==="broken"?"active":""}`} onClick={() => setImgFilter("broken")}>
+          Sin imagen {brokenCount > 0 && `(${brokenCount})`}
+        </button>
+        <button className={`list-filter-btn ${imgFilter==="ok"?"active":""}`} onClick={() => setImgFilter("ok")}>Con imagen</button>
+      </div>
+
+      {confirming && (
+        <div className="confirm-overlay" onClick={() => setConfirming(false)}>
+          <div className="confirm-dialog" onClick={e => e.stopPropagation()}>
+            <div className="confirm-title">¿Borrar todo el mazo?</div>
+            <div className="confirm-body">
+              Se eliminarán <strong>{cards.length} tarjeta{cards.length !== 1 ? "s" : ""}</strong> y todo su progreso. Esta acción no se puede deshacer.
+            </div>
+            <div className="confirm-actions">
+              <button className="confirm-cancel" onClick={() => setConfirming(false)}>Cancelar</button>
+              <button className="confirm-ok" onClick={() => { onDeleteAll(); setConfirming(false); }}>Sí, borrar todo</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {editingCard && (
+        <EditModal card={editingCard} onSave={c => { onEdit(c); setEditingCard(null); showToast(`✓ "${c.german}" actualizado`); }} onClose={() => setEditingCard(null)} />
+      )}
+
+      {previewCard && (
+        <ImagePreviewModal
+          card={previewCard}
+          onSave={updated => { onEdit(updated); setPreviewCard(updated); showToast(`✓ Imagen actualizada`); }}
+          onClose={() => setPreviewCard(null)}
+        />
+      )}
+
+      {cardPreview && (
+        <CardPreviewModal card={cardPreview} onClose={() => setCardPreview(null)} />
+      )}
+
+      <div className="card-list">
+        {filtered.length === 0 && (
+          <div className="list-empty">{query ? `Sin resultados para "${query}"` : "Sin tarjetas en este filtro"}</div>
+        )}
+        {filtered.map(c => {
+          const isDue = c.nextReview <= Date.now();
+          const hasImgSlot = c.cardType === "type1" || c.cardType === "type5" || c.cardType === "type6";
+          return (
+            <div key={c.id} className="list-item">
+              {hasImgSlot
+                ? <ListItemThumb card={c} onClick={() => setPreviewCard(c)} />
+                : <div style={{width:"28px"}} />
+              }
+              <div className="li-main">
+                <div className="li-german">{c.german}</div>
+                <div className="li-trans">{c.translation}</div>
+                {c.note && <div className="li-note">{c.note}</div>}
+              </div>
+              <div className={`li-next ${isDue ? "due" : ""}`}>{daysUntil(c.nextReview)}</div>
+              <button className="preview-card-btn" onClick={() => setCardPreview(c)} title="Vista previa">
+                <svg width="13" height="10" viewBox="0 0 13 10" fill="none" xmlns="http://www.w3.org/2000/svg" style={{display:"block"}}>
+                  <path d="M6.5 1C3.5 1 1 4 1 5C1 6 3.5 9 6.5 9C9.5 9 12 6 12 5C12 4 9.5 1 6.5 1Z" stroke="currentColor" strokeWidth="1.1" fill="none"/>
+                  <circle cx="6.5" cy="5" r="1.5" stroke="currentColor" strokeWidth="1.1" fill="none"/>
+                </svg>
+              </button>
+              <button className="edit-btn" onClick={() => setEditingCard(c)}>✎</button>
+              <button className="delete-btn" onClick={() => onDelete(c.id)}>×</button>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+// ── Auth View ─────────────────────────────────────────────────────────────────
+const LANGS = [
+  {
+    code: "de",
+    label: "Deutsch",
+    flag: (
+      <svg viewBox="0 0 28 19" xmlns="http://www.w3.org/2000/svg" style={{ width: 28, flexShrink: 0 }}>
+        <rect width="28" height="6.33" y="0" fill="#000"/>
+        <rect width="28" height="6.34" y="6.33" fill="#D00"/>
+        <rect width="28" height="6.33" y="12.67" fill="#FFCE00"/>
+      </svg>
+    ),
+    accent: "#FFCE00",
+  },
+  {
+    code: "fr",
+    label: "Français",
+    flag: (
+      <svg viewBox="0 0 28 19" xmlns="http://www.w3.org/2000/svg" style={{ width: 28, flexShrink: 0 }}>
+        <rect width="9.33" height="19" x="0" fill="#002395"/>
+        <rect width="9.34" height="19" x="9.33" fill="#fff"/>
+        <rect width="9.33" height="19" x="18.67" fill="#ED2939"/>
+      </svg>
+    ),
+    accent: "#ED2939",
+  },
+];
+
+function AuthView({ onAuth }) {
+  const [mode, setMode] = useState("login");
+  const [username, setUsername] = useState("");
+  const [password, setPassword] = useState("");
+  const [language, setLanguage] = useState("de");
+  const [error, setError] = useState(null);
+  const [loading, setLoading] = useState(false);
+
+  const lang = LANGS.find(l => l.code === language);
+
+  async function handleSubmit(e) {
+    e.preventDefault();
+    setError(null);
+    setLoading(true);
+    try {
+      const body = { username, password };
+      if (mode === "register") body.language = language;
+      const data = await apiFetch(`/auth/${mode}`, {
+        method: "POST",
+        body: JSON.stringify(body),
+      });
+      onAuth(data.username, data.language || "de");
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  return (
+    <div style={{
+      minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center",
+      background: "#111111",
+    }}>
+      <style>{FONTS}{css}</style>
+      <div style={{
+        width: "100%", maxWidth: 380, padding: "2.5rem 2rem",
+        background: "#1a1a1a", borderRadius: 12, border: "1px solid #2a2a2a",
+      }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: "2rem" }}>
+          {lang.flag}
+          <span style={{ fontFamily: "'Playfair Display', serif", fontSize: "1.4rem", color: "#f0ece0" }}>
+            Sprachen<span style={{ color: lang.accent }}>Karten</span>
+          </span>
+        </div>
+
+        <div style={{ display: "flex", gap: 8, marginBottom: "1.5rem" }}>
+          {["login", "register"].map(m => (
+            <button key={m} onClick={() => { setMode(m); setError(null); }} style={{
+              flex: 1, padding: "0.5rem", borderRadius: 6, border: "none", cursor: "pointer",
+              fontFamily: "'DM Mono', monospace", fontSize: "0.8rem",
+              background: mode === m ? lang.accent : "#2a2a2a",
+              color: mode === m ? "#111" : "#888",
+              fontWeight: mode === m ? 600 : 400,
+            }}>
+              {m === "login" ? "Iniciar sesión" : "Registrarse"}
+            </button>
+          ))}
+        </div>
+
+        <form onSubmit={handleSubmit} style={{ display: "flex", flexDirection: "column", gap: "1rem" }}>
+          <input
+            type="text" placeholder="Usuario" value={username} autoComplete="username"
+            onChange={e => setUsername(e.target.value)} required
+            style={{
+              padding: "0.7rem 1rem", borderRadius: 6, border: "1px solid #333",
+              background: "#222", color: "#f0ece0", fontFamily: "'DM Mono', monospace",
+              fontSize: "0.9rem", outline: "none",
+            }}
+          />
+          <input
+            type="password" placeholder="Contraseña" value={password} autoComplete={mode === "login" ? "current-password" : "new-password"}
+            onChange={e => setPassword(e.target.value)} required
+            style={{
+              padding: "0.7rem 1rem", borderRadius: 6, border: "1px solid #333",
+              background: "#222", color: "#f0ece0", fontFamily: "'DM Mono', monospace",
+              fontSize: "0.9rem", outline: "none",
+            }}
+          />
+
+          {mode === "register" && (
+            <div>
+              <p style={{ fontSize: "0.75rem", color: "#666", marginBottom: "0.5rem" }}>Idioma a aprender</p>
+              <div style={{ display: "flex", gap: 8 }}>
+                {LANGS.map(l => (
+                  <button
+                    key={l.code}
+                    type="button"
+                    onClick={() => setLanguage(l.code)}
+                    style={{
+                      flex: 1, display: "flex", alignItems: "center", justifyContent: "center",
+                      gap: 8, padding: "0.6rem", borderRadius: 6, cursor: "pointer",
+                      border: language === l.code ? `2px solid ${l.accent}` : "2px solid #333",
+                      background: language === l.code ? "#222" : "#1a1a1a",
+                      fontFamily: "'DM Mono', monospace", fontSize: "0.85rem",
+                      color: language === l.code ? "#f0ece0" : "#666",
+                      transition: "all 0.15s",
+                    }}
+                  >
+                    {l.flag}
+                    {l.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {error && (
+            <p style={{ color: "#e05c5c", fontSize: "0.8rem", margin: 0 }}>{error}</p>
+          )}
+          <button type="submit" disabled={loading} style={{
+            padding: "0.75rem", borderRadius: 6, border: "none", cursor: "pointer",
+            background: lang.accent, color: "#111", fontFamily: "'DM Mono', monospace",
+            fontSize: "0.9rem", fontWeight: 600, opacity: loading ? 0.6 : 1,
+          }}>
+            {loading ? "…" : mode === "login" ? "Entrar" : "Crear cuenta"}
+          </button>
+        </form>
+      </div>
+    </div>
+  );
+}
+
+// ── App ──────────────────────────────────────────────────────────────────────
+export default function App() {
+  // null = verificando, false = no autenticado, string = username
+  const [user, setUser] = useState(null);
+  const [language, setLanguage] = useState("de");
+  const [cards, setCards] = useState([]);
+  const [view, setView] = useState("study");
+
+  // Verify session on mount
+  useEffect(() => {
+    apiFetch("/auth/me")
+      .then(data => {
+        setUser(data.username);
+        setLanguage(data.language || "de");
+        return loadCards();
+      })
+      .then(c => setCards(c))
+      .catch(() => setUser(false));
+  }, []);
+
+  // Persist cards to DB whenever they change (debounced)
+  useEffect(() => {
+    if (!user) return;
+    const t = setTimeout(() => saveCards(cards), 800);
+    return () => clearTimeout(t);
+  }, [cards, user]);
+
+  async function handleLogout() {
+    await apiFetch("/auth/logout", { method: "POST" }).catch(() => {});
+    setUser(false);
+    setCards([]);
+  }
+
+  function handleAuth(username, lang) {
+    setUser(username);
+    setLanguage(lang || "de");
+    loadCards().then(c => setCards(c)).catch(() => setCards([]));
+  }
+
+  const addCard = useCallback((data) => {
+    const card = {
+      id: Date.now().toString(),
+      cardType: data.cardType || "type1",
+      german: data.german,
+      translation: data.translation,
+      note: data.note || "",
+      example: data.example || "",
+      exampleTranslation: data.exampleTranslation || "",
+      imageUrl: data.imageUrl || null,
+      audioUrl: data.audioUrl || null,
+      repetitions: 0,
+      easiness: 2.5,
+      interval: 0,
+      nextReview: Date.now(),
+      lastGrade: null,
+    };
+    setCards(prev => [...prev, card]);
+  }, []);
+
+  const gradeCard = useCallback((id, updates) => {
+    setCards(prev => prev.map(c => c.id === id ? { ...c, ...updates } : c));
+  }, []);
+
+  const deleteCard = useCallback((id) => {
+    setCards(prev => prev.filter(c => c.id !== id));
+  }, []);
+
+  const deleteAllCards = useCallback(() => {
+    setCards([]);
+  }, []);
+
+  const editCard = useCallback((updated) => {
+    setCards(prev => prev.map(c => c.id === updated.id ? updated : c));
+  }, []);
+
+  const bulkAddCards = useCallback((items, replace = false) => {
+    const now = Date.now();
+    const newCards = items.map((data, i) => ({
+      id: (now + i).toString(),
+      german: data.german.trim(),
+      translation: data.translation.trim(),
+      note: (data.note || "").trim(),
+      cardType: data.cardType || "type1",
+      imageUrl: data.imageUrl || null,
+      audioUrl: data.audioUrl || null,
+      example: data.example || "",
+      exampleTranslation: data.exampleTranslation || "",
+      repetitions: 0,
+      easiness: 2.5,
+      interval: 0,
+      nextReview: now,
+      lastGrade: null,
+    }));
+    setCards(prev => replace ? newCards : [...prev, ...newCards]);
+  }, []);
+
+  // Verificando sesión
+  if (user === null) {
+    return (
+      <div style={{
+        minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center",
+        background: "#111111", color: "#888", fontFamily: "'DM Mono', monospace",
+      }}>
+        <style>{FONTS}</style>
+        Cargando…
+      </div>
+    );
+  }
+
+  if (user === false) {
+    return <AuthView onAuth={handleAuth} />;
+  }
+
+  const VIEWS = [
+    { id: "study", label: "Repasar" },
+    { id: "add", label: "+ Agregar" },
+    { id: "list", label: "Lista" },
+    { id: "stats", label: "Estado" },
+  ];
+
+  return (
+    <>
+      <style>{FONTS}{css}</style>
+      <div className="noise" />
+      <div className="app">
+        <header className="header">
+          <div className="logo">
+            {language === "fr" ? (
+              <svg className="logo-flag" viewBox="0 0 28 19" xmlns="http://www.w3.org/2000/svg">
+                <rect width="9.33" height="19" x="0" fill="#002395"/>
+                <rect width="9.34" height="19" x="9.33" fill="#fff"/>
+                <rect width="9.33" height="19" x="18.67" fill="#ED2939"/>
+              </svg>
+            ) : (
+              <svg className="logo-flag" viewBox="0 0 28 19" xmlns="http://www.w3.org/2000/svg">
+                <rect width="28" height="6.33" y="0" fill="#000"/>
+                <rect width="28" height="6.34" y="6.33" fill="#D00"/>
+                <rect width="28" height="6.33" y="12.67" fill="#FFCE00"/>
+              </svg>
+            )}
+            <div className="logo-text">
+              {language === "fr" ? <>Français<span>Cartes</span></> : <>Deutsch<span>Karten</span></>}
+            </div>
+          </div>
+          <nav className="nav">
+            {VIEWS.map(v => (
+              <button
+                key={v.id}
+                className={`nav-btn ${view === v.id ? "active" : ""}`}
+                onClick={() => setView(v.id)}
+              >{v.label}</button>
+            ))}
+            <button
+              className="nav-btn"
+              onClick={handleLogout}
+              title={`Sesión: ${user}`}
+              style={{ marginLeft: "auto", opacity: 0.6 }}
+            >↩ {user}</button>
+          </nav>
+        </header>
+
+        {view === "study" && <StudyView cards={cards} onGrade={gradeCard} onUpdateCards={setCards} />}
+        {view === "add" && <AddView onAdd={card => { addCard(card); setView("study"); }} onBulkAdd={(items, replace) => { bulkAddCards(items, replace); setView("list"); }} />}
+        {view === "list" && <ListView cards={cards} onDelete={deleteCard} onDeleteAll={deleteAllCards} onEdit={editCard} />}
+        {view === "stats" && <StatsView cards={cards} />}
+      </div>
+    </>
+  );
+}
