@@ -42,7 +42,7 @@ function daysUntil(ts) {
   return d <= 0 ? "Hoy" : d === 1 ? "Mañana" : `${d} días`;
 }
 
-const API_BASE = "http://localhost:3001";
+const API_BASE = import.meta.env.VITE_API_URL ?? "http://localhost:3001";
 
 async function apiFetch(path, opts = {}) {
   const res = await fetch(`${API_BASE}${path}`, {
