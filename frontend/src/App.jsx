@@ -3222,7 +3222,30 @@ export default function App() {
     return () => clearTimeout(t);
   }, [cards, user]);
 
+  // Refs kept current for non-React callbacks (beforeunload, logout flush)
+  const cardsRef = useRef(cards);
+  useEffect(() => { cardsRef.current = cards; }, [cards]);
+  const userRef = useRef(user);
+  useEffect(() => { userRef.current = user; }, [user]);
+
+  // Flush save immediately when the browser tab/window is closing
+  useEffect(() => {
+    const flush = () => {
+      if (!userRef.current) return;
+      fetch(`${API_BASE}/cards`, {
+        method: "PUT",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(cardsRef.current),
+        keepalive: true,
+      });
+    };
+    window.addEventListener("beforeunload", flush);
+    return () => window.removeEventListener("beforeunload", flush);
+  }, []);
+
   async function handleLogout() {
+    await saveCards(cards).catch(() => {});
     await apiFetch("/auth/logout", { method: "POST" }).catch(() => {});
     setUser(false);
     setCards([]);
