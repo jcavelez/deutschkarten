@@ -14,6 +14,7 @@ const MEDIA_DIR = "/data/media";
 const PORT      = 3001;
 const JWT_SECRET = process.env.JWT_SECRET || "change_me_in_production";
 const SALT_ROUNDS = 10;
+const IS_PROD = process.env.NODE_ENV === "production";
 
 fs.mkdirSync(MEDIA_DIR, { recursive: true });
 
@@ -86,7 +87,7 @@ app.post("/auth/register", async (req, res) => {
     );
     const user = result.rows[0];
     const token = jwt.sign({ id: user.id, username: user.username, language: user.language }, JWT_SECRET, { expiresIn: "30d" });
-    res.cookie("dk_token", token, { httpOnly: true, sameSite: "lax", maxAge: 30 * 86400 * 1000 });
+    res.cookie("dk_token", token, { httpOnly: true, sameSite: IS_PROD ? "none" : "lax", secure: IS_PROD, maxAge: 30 * 86400 * 1000 });
     res.json({ username: user.username, language: user.language });
   } catch (err) {
     if (err.code === "23505") return res.status(409).json({ error: "El usuario ya existe." });
@@ -108,7 +109,7 @@ app.post("/auth/login", async (req, res) => {
     if (!user || !(await bcrypt.compare(password, user.password_hash)))
       return res.status(401).json({ error: "Credenciales incorrectas." });
     const token = jwt.sign({ id: user.id, username: user.username, language: user.language }, JWT_SECRET, { expiresIn: "30d" });
-    res.cookie("dk_token", token, { httpOnly: true, sameSite: "lax", maxAge: 30 * 86400 * 1000 });
+    res.cookie("dk_token", token, { httpOnly: true, sameSite: IS_PROD ? "none" : "lax", secure: IS_PROD, maxAge: 30 * 86400 * 1000 });
     res.json({ username: user.username, language: user.language });
   } catch (err) {
     console.error(err);
