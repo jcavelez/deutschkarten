@@ -1,7 +1,7 @@
 FROM node:20-alpine
 WORKDIR /app
-COPY package.json .
+COPY backend/package.json .
 RUN npm install --omit=dev
-COPY server.js .
+COPY backend/server.js .
 EXPOSE 3001
 CMD ["node", "server.js"]

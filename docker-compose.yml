@@ -1,7 +1,9 @@
 services:
 
   api:
-    build: ./backend
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
     container_name: dk-api
     ports:
       - "3001:3001"
