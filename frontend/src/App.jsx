@@ -44,10 +44,20 @@ function daysUntil(ts) {
 
 const API_BASE = import.meta.env.VITE_API_URL ?? "http://localhost:3001";
 
+// ── Auth token (Bearer, stored in localStorage) ──────────────────────────────
+const TOKEN_KEY = "dk_token";
+const getToken   = () => localStorage.getItem(TOKEN_KEY);
+const setToken   = (t) => localStorage.setItem(TOKEN_KEY, t);
+const clearToken = () => localStorage.removeItem(TOKEN_KEY);
+
+function authHeaders() {
+  const token = getToken();
+  return token ? { Authorization: `Bearer ${token}` } : {};
+}
+
 async function apiFetch(path, opts = {}) {
   const res = await fetch(`${API_BASE}${path}`, {
-    credentials: "include",
-    headers: { "Content-Type": "application/json", ...(opts.headers || {}) },
+    headers: { "Content-Type": "application/json", ...authHeaders(), ...(opts.headers || {}) },
     ...opts,
   });
   if (!res.ok) {
@@ -77,7 +87,7 @@ async function fetchExplanation(card) {
 async function uploadMedia(file) {
   const fd = new FormData();
   fd.append("file", file);
-  const res = await fetch(`${API_BASE}/upload`, { method: "POST", body: fd, credentials: "include" });
+  const res = await fetch(`${API_BASE}/upload`, { method: "POST", body: fd, headers: authHeaders() });
   if (!res.ok) throw new Error("Error al subir archivo.");
   return res.json();
 }
@@ -85,7 +95,7 @@ async function uploadMedia(file) {
 async function deleteMedia(url) {
   const filename = url.split("/media/")[1];
   if (!filename) return;
-  await fetch(`${API_BASE}/media/${filename}`, { method: "DELETE", credentials: "include" });
+  await fetch(`${API_BASE}/media/${filename}`, { method: "DELETE", headers: authHeaders() });
 }
 
 // ── Styles ──────────────────────────────────────────────────────────────────
@@ -3093,6 +3103,7 @@ function AuthView({ onAuth }) {
         method: "POST",
         body: JSON.stringify(body),
       });
+      if (data.token) setToken(data.token);
       onAuth(data.username, data.language || "de");
     } catch (err) {
       setError(err.message);
@@ -3203,8 +3214,9 @@ export default function App() {
   const [cards, setCards] = useState([]);
   const [view, setView] = useState("study");
 
-  // Verify session on mount
+  // Restore session on mount: verify the stored token, if any
   useEffect(() => {
+    if (!getToken()) { setUser(false); return; }
     apiFetch("/auth/me")
       .then(data => {
         setUser(data.username);
@@ -3212,7 +3224,7 @@ export default function App() {
         return loadCards();
       })
       .then(c => setCards(c))
-      .catch(() => setUser(false));
+      .catch(() => { clearToken(); setUser(false); });
   }, []);
 
   // Persist cards to DB whenever they change (debounced)
@@ -3234,8 +3246,7 @@ export default function App() {
       if (!userRef.current) return;
       fetch(`${API_BASE}/cards`, {
         method: "PUT",
-        credentials: "include",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", ...authHeaders() },
         body: JSON.stringify(cardsRef.current),
         keepalive: true,
       });
@@ -3246,7 +3257,7 @@ export default function App() {
 
   async function handleLogout() {
     await saveCards(cards).catch(() => {});
-    await apiFetch("/auth/logout", { method: "POST" }).catch(() => {});
+    clearToken();
     setUser(false);
     setCards([]);
   }

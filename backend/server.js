@@ -7,14 +7,12 @@ const crypto       = require("crypto");
 const { Pool }     = require("pg");
 const bcrypt       = require("bcrypt");
 const jwt          = require("jsonwebtoken");
-const cookieParser = require("cookie-parser");
 
 const app       = express();
 const MEDIA_DIR = "/data/media";
 const PORT      = 3001;
 const JWT_SECRET = process.env.JWT_SECRET || "change_me_in_production";
 const SALT_ROUNDS = 10;
-const IS_PROD = process.env.NODE_ENV === "production";
 
 fs.mkdirSync(MEDIA_DIR, { recursive: true });
 
@@ -59,16 +57,15 @@ async function initDb() {
 // ── Middleware ────────────────────────────────────────────────────────────────
 app.use(cors({ origin: process.env.CORS_ORIGIN || "http://localhost:8080", credentials: true }));
 app.use(express.json({ limit: "50mb" }));
-app.use(cookieParser());
 
 function requireAuth(req, res, next) {
-  const token = req.cookies?.dk_token;
+  const header = req.headers.authorization || "";
+  const token = header.startsWith("Bearer ") ? header.slice(7) : null;
   if (!token) return res.status(401).json({ error: "No autenticado." });
   try {
     req.user = jwt.verify(token, JWT_SECRET);
     next();
   } catch {
-    res.clearCookie("dk_token");
     res.status(401).json({ error: "Sesión inválida." });
   }
 }
@@ -87,8 +84,7 @@ app.post("/auth/register", async (req, res) => {
     );
     const user = result.rows[0];
     const token = jwt.sign({ id: user.id, username: user.username, language: user.language }, JWT_SECRET, { expiresIn: "30d" });
-    res.cookie("dk_token", token, { httpOnly: true, sameSite: IS_PROD ? "none" : "lax", secure: IS_PROD, maxAge: 30 * 86400 * 1000 });
-    res.json({ username: user.username, language: user.language });
+    res.json({ token, username: user.username, language: user.language });
   } catch (err) {
     if (err.code === "23505") return res.status(409).json({ error: "El usuario ya existe." });
     console.error(err);
@@ -109,17 +105,11 @@ app.post("/auth/login", async (req, res) => {
     if (!user || !(await bcrypt.compare(password, user.password_hash)))
       return res.status(401).json({ error: "Credenciales incorrectas." });
     const token = jwt.sign({ id: user.id, username: user.username, language: user.language }, JWT_SECRET, { expiresIn: "30d" });
-    res.cookie("dk_token", token, { httpOnly: true, sameSite: IS_PROD ? "none" : "lax", secure: IS_PROD, maxAge: 30 * 86400 * 1000 });
-    res.json({ username: user.username, language: user.language });
+    res.json({ token, username: user.username, language: user.language });
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: "Error al iniciar sesión." });
   }
-});
-
-app.post("/auth/logout", (req, res) => {
-  res.clearCookie("dk_token");
-  res.json({ ok: true });
 });
 
 app.get("/auth/me", requireAuth, (req, res) => {
@@ -250,7 +240,12 @@ Explica: etimología o lógica de la palabra, uso en contexto, cualquier truco m
       }),
     });
     const data = await apiRes.json();
-    if (!apiRes.ok) return res.status(apiRes.status).json({ error: data.error?.message || "Error de API." });
+    if (!apiRes.ok) {
+      // Upstream (Anthropic) failure — surface as a gateway error so it isn't
+      // confused with this app's own 401/auth responses.
+      console.error("Anthropic API error:", apiRes.status, data.error?.message);
+      return res.status(502).json({ error: data.error?.message || "Error del servicio de IA." });
+    }
     const text = data.content?.find(b => b.type === "text")?.text || "Sin respuesta.";
     res.json({ text });
   } catch (err) {
