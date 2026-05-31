@@ -72,7 +72,11 @@ async function loadCards() {
 }
 
 async function saveCards(cards) {
-  return apiFetch("/cards", { method: "PUT", body: JSON.stringify(cards) });
+  // An empty deck is destructive server-side, so it must opt in explicitly.
+  // We only reach here with [] after the deck was genuinely loaded then emptied
+  // by the user — the `loaded` guard blocks the startup race.
+  const qs = cards.length === 0 ? "?allowEmpty=true" : "";
+  return apiFetch(`/cards${qs}`, { method: "PUT", body: JSON.stringify(cards) });
 }
 
 // ── AI Explanation ──────────────────────────────────────────────
@@ -3212,42 +3216,56 @@ export default function App() {
   const [user, setUser] = useState(null);
   const [language, setLanguage] = useState("de");
   const [cards, setCards] = useState([]);
+  const [loaded, setLoaded] = useState(false); // true only after this user's cards are fetched
   const [view, setView] = useState("study");
 
-  // Restore session on mount: verify the stored token, if any
+  // Restore session on mount: verify the stored token, if any.
+  // Await BOTH /auth/me and the cards before any setState, so there is never a
+  // committed render where `user` is truthy but `cards` is still the initial [].
   useEffect(() => {
     if (!getToken()) { setUser(false); return; }
-    apiFetch("/auth/me")
-      .then(data => {
-        setUser(data.username);
-        setLanguage(data.language || "de");
-        return loadCards();
-      })
-      .then(c => setCards(c))
-      .catch(() => { clearToken(); setUser(false); });
+    (async () => {
+      try {
+        const me = await apiFetch("/auth/me");
+        const c = await loadCards();
+        setUser(me.username);
+        setLanguage(me.language || "de");
+        setCards(c);
+        setLoaded(true);
+      } catch {
+        clearToken();
+        setUser(false);
+      }
+    })();
   }, []);
 
-  // Persist cards to DB whenever they change (debounced)
+  // Persist cards to DB whenever they change (debounced).
+  // Guard on `loaded`: never write until this user's deck has actually been
+  // fetched, otherwise the initial empty [] could overwrite the stored deck.
   useEffect(() => {
-    if (!user) return;
-    const t = setTimeout(() => saveCards(cards), 800);
+    if (!user || !loaded) return;
+    const t = setTimeout(() => { saveCards(cards).catch(() => {}); }, 800);
     return () => clearTimeout(t);
-  }, [cards, user]);
+  }, [cards, user, loaded]);
 
   // Refs kept current for non-React callbacks (beforeunload, logout flush)
   const cardsRef = useRef(cards);
   useEffect(() => { cardsRef.current = cards; }, [cards]);
   const userRef = useRef(user);
   useEffect(() => { userRef.current = user; }, [user]);
+  const loadedRef = useRef(loaded);
+  useEffect(() => { loadedRef.current = loaded; }, [loaded]);
 
   // Flush save immediately when the browser tab/window is closing
   useEffect(() => {
     const flush = () => {
-      if (!userRef.current) return;
-      fetch(`${API_BASE}/cards`, {
+      if (!userRef.current || !loadedRef.current) return;
+      const cards = cardsRef.current;
+      const qs = cards.length === 0 ? "?allowEmpty=true" : "";
+      fetch(`${API_BASE}/cards${qs}`, {
         method: "PUT",
         headers: { "Content-Type": "application/json", ...authHeaders() },
-        body: JSON.stringify(cardsRef.current),
+        body: JSON.stringify(cards),
         keepalive: true,
       });
     };
@@ -3256,16 +3274,26 @@ export default function App() {
   }, []);
 
   async function handleLogout() {
-    await saveCards(cards).catch(() => {});
+    if (loaded) await saveCards(cards).catch(() => {});
     clearToken();
+    setLoaded(false);
     setUser(false);
     setCards([]);
   }
 
-  function handleAuth(username, lang) {
+  async function handleAuth(username, lang) {
+    // New user session: block saving until THIS user's cards are loaded, so a
+    // switch can't persist an empty/stale deck over the incoming one.
+    setLoaded(false);
     setUser(username);
     setLanguage(lang || "de");
-    loadCards().then(c => setCards(c)).catch(() => setCards([]));
+    try {
+      const c = await loadCards();
+      setCards(c);
+      setLoaded(true);          // enable saving ONLY after a successful load
+    } catch {
+      setCards([]);             // show empty UI, but keep loaded=false so we never wipe
+    }
   }
 
   const addCard = useCallback((data) => {

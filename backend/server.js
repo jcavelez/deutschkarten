@@ -139,6 +139,12 @@ app.put("/cards", requireAuth, async (req, res) => {
   const cards = req.body;
   if (!Array.isArray(cards)) return res.status(400).json({ error: "Se esperaba un array." });
 
+  // Safety net: an empty payload would DELETE the user's whole deck. Refuse it
+  // unless the client explicitly opts in (genuine "delete all"), so a future
+  // frontend bug can't silently wipe a deck.
+  if (cards.length === 0 && req.query.allowEmpty !== "true")
+    return res.status(400).json({ error: "Payload vacío sin allowEmpty; mazo no modificado." });
+
   const client = await pool.connect();
   try {
     await client.query("BEGIN");
