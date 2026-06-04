@@ -71,25 +71,10 @@ function requireAuth(req, res, next) {
 }
 
 // ── Auth ──────────────────────────────────────────────────────────────────────
-app.post("/auth/register", async (req, res) => {
-  const { username, password, language } = req.body || {};
-  if (!username?.trim() || !password)
-    return res.status(400).json({ error: "Usuario y contraseña requeridos." });
-  const lang = ["de", "fr"].includes(language) ? language : "de";
-  try {
-    const hash = await bcrypt.hash(password, SALT_ROUNDS);
-    const result = await pool.query(
-      "INSERT INTO users (username, password_hash, language) VALUES ($1, $2, $3) RETURNING id, username, language",
-      [username.trim(), hash, lang]
-    );
-    const user = result.rows[0];
-    const token = jwt.sign({ id: user.id, username: user.username, language: user.language }, JWT_SECRET, { expiresIn: "30d" });
-    res.json({ token, username: user.username, language: user.language });
-  } catch (err) {
-    if (err.code === "23505") return res.status(409).json({ error: "El usuario ya existe." });
-    console.error(err);
-    res.status(500).json({ error: "Error al registrar." });
-  }
+// Public registration is closed — users are created manually via
+// backend/scripts/create-user.js.
+app.post("/auth/register", (req, res) => {
+  res.status(403).json({ error: "El registro está cerrado." });
 });
 
 app.post("/auth/login", async (req, res) => {

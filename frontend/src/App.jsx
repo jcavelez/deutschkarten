@@ -3087,25 +3087,21 @@ const LANGS = [
 ];
 
 function AuthView({ onAuth }) {
-  const [mode, setMode] = useState("login");
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
-  const [language, setLanguage] = useState("de");
   const [error, setError] = useState(null);
   const [loading, setLoading] = useState(false);
 
-  const lang = LANGS.find(l => l.code === language);
+  const lang = LANGS.find(l => l.code === "de"); // branding only; no language picker on login
 
   async function handleSubmit(e) {
     e.preventDefault();
     setError(null);
     setLoading(true);
     try {
-      const body = { username, password };
-      if (mode === "register") body.language = language;
-      const data = await apiFetch(`/auth/${mode}`, {
+      const data = await apiFetch("/auth/login", {
         method: "POST",
-        body: JSON.stringify(body),
+        body: JSON.stringify({ username, password }),
       });
       if (data.token) setToken(data.token);
       onAuth(data.username, data.language || "de");
@@ -3133,20 +3129,6 @@ function AuthView({ onAuth }) {
           </span>
         </div>
 
-        <div style={{ display: "flex", gap: 8, marginBottom: "1.5rem" }}>
-          {["login", "register"].map(m => (
-            <button key={m} onClick={() => { setMode(m); setError(null); }} style={{
-              flex: 1, padding: "0.5rem", borderRadius: 6, border: "none", cursor: "pointer",
-              fontFamily: "'DM Mono', monospace", fontSize: "0.8rem",
-              background: mode === m ? lang.accent : "#2a2a2a",
-              color: mode === m ? "#111" : "#888",
-              fontWeight: mode === m ? 600 : 400,
-            }}>
-              {m === "login" ? "Iniciar sesión" : "Registrarse"}
-            </button>
-          ))}
-        </div>
-
         <form onSubmit={handleSubmit} style={{ display: "flex", flexDirection: "column", gap: "1rem" }}>
           <input
             type="text" placeholder="Usuario" value={username} autoComplete="username"
@@ -3158,7 +3140,7 @@ function AuthView({ onAuth }) {
             }}
           />
           <input
-            type="password" placeholder="Contraseña" value={password} autoComplete={mode === "login" ? "current-password" : "new-password"}
+            type="password" placeholder="Contraseña" value={password} autoComplete="current-password"
             onChange={e => setPassword(e.target.value)} required
             style={{
               padding: "0.7rem 1rem", borderRadius: 6, border: "1px solid #333",
@@ -3166,33 +3148,6 @@ function AuthView({ onAuth }) {
               fontSize: "0.9rem", outline: "none",
             }}
           />
-
-          {mode === "register" && (
-            <div>
-              <p style={{ fontSize: "0.75rem", color: "#666", marginBottom: "0.5rem" }}>Idioma a aprender</p>
-              <div style={{ display: "flex", gap: 8 }}>
-                {LANGS.map(l => (
-                  <button
-                    key={l.code}
-                    type="button"
-                    onClick={() => setLanguage(l.code)}
-                    style={{
-                      flex: 1, display: "flex", alignItems: "center", justifyContent: "center",
-                      gap: 8, padding: "0.6rem", borderRadius: 6, cursor: "pointer",
-                      border: language === l.code ? `2px solid ${l.accent}` : "2px solid #333",
-                      background: language === l.code ? "#222" : "#1a1a1a",
-                      fontFamily: "'DM Mono', monospace", fontSize: "0.85rem",
-                      color: language === l.code ? "#f0ece0" : "#666",
-                      transition: "all 0.15s",
-                    }}
-                  >
-                    {l.flag}
-                    {l.label}
-                  </button>
-                ))}
-              </div>
-            </div>
-          )}
 
           {error && (
             <p style={{ color: "#e05c5c", fontSize: "0.8rem", margin: 0 }}>{error}</p>
@@ -3202,7 +3157,7 @@ function AuthView({ onAuth }) {
             background: lang.accent, color: "#111", fontFamily: "'DM Mono', monospace",
             fontSize: "0.9rem", fontWeight: 600, opacity: loading ? 0.6 : 1,
           }}>
-            {loading ? "…" : mode === "login" ? "Entrar" : "Crear cuenta"}
+            {loading ? "…" : "Entrar"}
           </button>
         </form>
       </div>
