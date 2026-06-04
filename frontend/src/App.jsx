@@ -383,6 +383,7 @@ const css = `
     line-height: 1.8;
     color: #c8c0a8;
     white-space: pre-wrap;
+    overflow-wrap: break-word;
     margin-bottom: 1rem;
   }
 
@@ -1669,11 +1670,13 @@ const css = `
 
   .answer-input-row {
     display: flex;
+    flex-wrap: wrap;
     gap: 0.5rem;
   }
 
   .answer-input {
     flex: 1;
+    min-width: 0;
     background: #111;
     border: 1px solid #333;
     border-radius: 2px;
@@ -1746,6 +1749,7 @@ const css = `
     padding: 0.6rem 0.9rem;
     border-radius: 2px;
     line-height: 1.5;
+    overflow-wrap: break-word;
   }
   .answer-feedback.correct {
     background: #0a1a0a;
@@ -2106,20 +2110,20 @@ function AnswerZoneType5({ card, onGrade, onExplain, explaining, explanation }) 
       </div>
       {result === "correct" && (
         <div className="answer-feedback correct" style={{display:"flex",alignItems:"center",gap:"0.5rem"}}>
-          <span>✓ ¡Correcto! — {fullSentence}</span>
+          <span style={{minWidth:0}}>✓ ¡Correcto! — {fullSentence}</span>
           <button className="audio-replay-btn" style={{width:"28px",height:"28px",fontSize:"0.8rem",flexShrink:0}} onClick={() => speak(card.german)}>▶</button>
         </div>
       )}
       {result === "wrong" && (
         <div className="answer-feedback wrong" style={{display:"flex",alignItems:"center",gap:"0.5rem"}}>
-          <span>✗ Era: <strong>{card.german}</strong> — {fullSentence}</span>
+          <span style={{minWidth:0}}>✗ Era: <strong>{card.german}</strong> — {fullSentence}</span>
           <button className="audio-replay-btn" style={{width:"28px",height:"28px",fontSize:"0.8rem",flexShrink:0}} onClick={() => speak(card.german)}>▶</button>
         </div>
       )}
       {result === "revealed" && (
         <div className="answer-feedback wrong" style={{display:"flex",flexDirection:"column",gap:"0.75rem"}}>
           <div style={{display:"flex",alignItems:"center",gap:"0.5rem"}}>
-            <span>👁 <strong>{card.german}</strong> — {fullSentence}</span>
+            <span style={{minWidth:0}}>👁 <strong>{card.german}</strong> — {fullSentence}</span>
             <button className="audio-replay-btn" style={{width:"28px",height:"28px",fontSize:"0.8rem",flexShrink:0}} onClick={() => speak(card.german)}>▶</button>
           </div>
           <button className="continuar-btn" onClick={() => onGrade(0)}>Continuar</button>
@@ -2180,7 +2184,7 @@ function AnswerZoneType6({ card, onGrade, onExplain, explaining, explanation }) 
       {picked && (
         <div className={`answer-feedback ${picked === correct ? "correct" : "wrong"}`} style={{display:"flex",flexDirection:"column",gap:"0.75rem"}}>
           <div style={{display:"flex",alignItems:"center",gap:"0.5rem"}}>
-            <span>{picked === correct ? `✓ Correcto — ${card.german}` : `✗ Es ${correct} — ${card.german}`}</span>
+            <span style={{minWidth:0}}>{picked === correct ? `✓ Correcto — ${card.german}` : `✗ Es ${correct} — ${card.german}`}</span>
             <button className="audio-replay-btn" style={{width:"28px",height:"28px",fontSize:"0.8rem",flexShrink:0}} onClick={() => speak(card.german)}>▶</button>
           </div>
           <button className="continuar-btn" onClick={() => onGrade(picked === correct ? 5 : 1)}>Continuar</button>
