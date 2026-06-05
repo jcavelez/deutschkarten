@@ -1804,22 +1804,7 @@ const css = `
 
     .logo-text { font-size: 1.15rem; }
 
-    .nav {
-      gap: 2px;
-      flex-wrap: nowrap;
-      display: none;
-    }
-
-    .nav-btn {
-      flex: 1 1 0;
-      min-width: 0;
-      font-size: 0.65rem;
-      padding: 0.5rem 0.4rem;
-      min-height: 44px;
-      display: flex;
-      align-items: center;
-      white-space: nowrap;
-    }
+    .nav { display: none; }
 
     .hamburger-btn {
       display: flex;
