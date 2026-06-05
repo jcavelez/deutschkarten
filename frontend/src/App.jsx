@@ -108,23 +108,26 @@ const FONTS = `@import url('https://fonts.googleapis.com/css2?family=Playfair+Di
 const css = `
 
   :root {
-    --bg: #111111;
-    --surface: #1a1a1a;
-    --surface-alt: #1e1e1e;
-    --border: #2e2e2e;
-    --border-input: #333333;
-    --text: #f0ece0;
-    --text-2: #aaaaaa;
-    --text-dim: #888888;
-    --text-faint: #555555;
-    --accent: #ffcc00;
-    --accent-soft: #1a1600;
-    --danger: #cc0000;
-    --danger-hover: #990000;
-    --danger-soft: #1a0a0a;
-    --ok: #44aa44;
-    --ok-text: #88dd88;
-    --ok-soft: #0a1a0a;
+    --bg: #F0EAE0;
+    --surface: #FDFBF7;
+    --surface-alt: #F4E7D9;
+    --border: #E2D6C5;
+    --border-input: #D8C9B5;
+    --text: #1F1B16;
+    --text-2: #6B5D4A;
+    --text-dim: #8A7A66;
+    --text-faint: #A79683;
+    --accent: #C8825B;
+    --accent-soft: #F4E7D9;
+    --danger: #B23B2E;
+    --danger-hover: #8F2E23;
+    --danger-soft: #F8EAE5;
+    --ok: #5A7A4E;
+    --ok-text: #4A6840;
+    --ok-soft: #EBF0E5;
+    --shadow-card: 0 12px 32px -10px rgba(60,40,20,.14), 0 3px 8px -3px rgba(60,40,20,.07);
+    --shadow-soft: 0 3px 10px -3px rgba(60,40,20,.10), 0 1px 3px rgba(60,40,20,.05);
+    --shadow-pop: 0 4px 12px -2px rgba(180,120,80,.45);
   }
   * { box-sizing: border-box; margin: 0; padding: 0; }
 
@@ -253,7 +256,7 @@ const css = `
     align-items: center;
     justify-content: center;
     border-radius: 4px;
-    border: 1px solid var(--border);
+    box-shadow: var(--shadow-card);
     background: var(--surface);
     padding: 1.5rem;
     position: relative;
@@ -271,7 +274,7 @@ const css = `
     align-items: center;
     justify-content: center;
     padding: 1.5rem;
-    border: 1px solid var(--border);
+    box-shadow: var(--shadow-card);
     background: var(--surface);
     overflow: hidden;
   }
@@ -279,7 +282,7 @@ const css = `
   .card-face.back {
     transform: rotateY(180deg);
     background: var(--surface-alt);
-    border-color: var(--danger);
+    box-shadow: var(--shadow-card);
   }
 
   .card-hint {
@@ -340,7 +343,7 @@ const css = `
     align-items: center;
     gap: 0.3rem;
     padding: 0.7rem 0.4rem;
-    border: 1px solid var(--border);
+    box-shadow: var(--shadow-soft);
     background: var(--surface);
     border-radius: 3px;
     cursor: pointer;
@@ -413,7 +416,7 @@ const css = `
   /* ── Add Card View ── */
   .add-form {
     background: var(--surface);
-    border: 1px solid var(--border);
+    box-shadow: var(--shadow-card);
     border-radius: 4px;
     padding: 2rem;
   }
@@ -460,9 +463,9 @@ const css = `
 
   .submit-btn {
     background: var(--danger);
-    border: 1px solid var(--danger-hover);
+    box-shadow: var(--shadow-pop);
     border-radius: 2px;
-    color: var(--text);
+    color: #FFFFFF;
     font-family: 'DM Mono', monospace;
     font-size: 0.7rem;
     letter-spacing: 0.12em;
@@ -511,7 +514,7 @@ const css = `
     gap: 0.6rem;
     padding: 0.6rem 0.75rem;
     background: var(--surface);
-    border: 1px solid #2a2a2a;
+    box-shadow: var(--shadow-soft);
     border-radius: 2px;
     transition: border-color 0.2s;
   }
@@ -860,7 +863,7 @@ const css = `
 
   .confirm-dialog {
     background: var(--surface);
-    border: 1px solid var(--danger);
+    box-shadow: var(--shadow-card);
     border-radius: 4px;
     padding: 2rem;
     max-width: 360px;
@@ -996,7 +999,7 @@ const css = `
   /* ── Edit modal ── */
   .edit-dialog {
     background: var(--surface);
-    border: 1px solid var(--accent);
+    box-shadow: var(--shadow-card);
     border-radius: 4px;
     padding: 1.75rem;
     max-width: 420px;
@@ -1279,7 +1282,7 @@ const css = `
     left: 50%;
     transform: translateX(-50%) translateY(0);
     background: var(--surface);
-    border: 1px solid #3a3a3a;
+    box-shadow: var(--shadow-card);
     border-left: 3px solid var(--ok);
     border-radius: 3px;
     padding: 0.65rem 1.25rem;
@@ -1392,7 +1395,7 @@ const css = `
 
   .stats-kpi {
     background: var(--surface);
-    border: 1px solid var(--border);
+    box-shadow: var(--shadow-soft);
     border-radius: 3px;
     padding: 1rem 0.75rem;
     text-align: center;
@@ -1796,11 +1799,11 @@ const css = `
   .article-btn {
     padding: 1rem;
     border-radius: 3px;
-    border: 1px solid var(--border);
+    box-shadow: var(--shadow-soft);
     background: var(--surface);
     font-family: 'Playfair Display', serif;
     font-size: 1.4rem;
-    color: var(--text-dim);
+    color: var(--text);
     cursor: pointer;
     transition: all 0.15s;
     text-align: center;
@@ -1857,9 +1860,8 @@ const css = `
       flex-direction: column;
       min-width: 160px;
       background: var(--surface);
-      border: 1px solid var(--border);
       border-radius: 8px;
-      box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
+      box-shadow: var(--shadow-card);
       padding: 0.4rem;
       z-index: 100;
     }
