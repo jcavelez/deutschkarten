@@ -123,6 +123,7 @@ const css = `
   }
 
   .header {
+    position: relative;
     display: flex;
     align-items: baseline;
     justify-content: space-between;
@@ -181,6 +182,8 @@ const css = `
     color: #ffcc00;
     background: #1e1e1e;
   }
+
+  .hamburger-btn { display: none; }
 
   /* ── Study View ── */
   .deck-empty {
@@ -1801,13 +1804,77 @@ const css = `
 
     .logo-text { font-size: 1.15rem; }
 
+    .nav {
+      gap: 2px;
+      flex-wrap: nowrap;
+      display: none;
+    }
+
     .nav-btn {
+      flex: 1 1 0;
+      min-width: 0;
       font-size: 0.65rem;
-      padding: 0.5rem 0.55rem;
+      padding: 0.5rem 0.4rem;
       min-height: 44px;
       display: flex;
       align-items: center;
+      white-space: nowrap;
     }
+
+    .hamburger-btn {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      min-width: 44px;
+      min-height: 44px;
+      font-size: 1.25rem;
+      background: none;
+      border: none;
+      cursor: pointer;
+      color: #f0ece0;
+    }
+
+    .menu-backdrop {
+      position: absolute;
+      top: 100%;
+      left: 0;
+      right: 0;
+      height: 100vh;
+      background: rgba(0, 0, 0, 0.3);
+      z-index: 90;
+    }
+
+    .menu-panel {
+      position: absolute;
+      top: 100%;
+      right: 0.5rem;
+      display: flex;
+      flex-direction: column;
+      min-width: 160px;
+      background: #1a1a1a;
+      border: 1px solid #2e2e2e;
+      border-radius: 8px;
+      box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
+      padding: 0.4rem;
+      z-index: 100;
+    }
+
+    .menu-item {
+      padding: 0.75rem 1rem;
+      min-height: 44px;
+      text-align: left;
+      background: none;
+      border: none;
+      border-radius: 6px;
+      font-size: 0.9rem;
+      cursor: pointer;
+      white-space: nowrap;
+      color: #888;
+    }
+
+    .menu-item.active { font-weight: 600; color: #ffcc00; }
+
+    .menu-logout { opacity: 0.7; }
 
     .card-scene { height: 210px; }
 
@@ -3177,6 +3244,7 @@ export default function App() {
   const [cards, setCards] = useState([]);
   const [loaded, setLoaded] = useState(false); // true only after this user's cards are fetched
   const [view, setView] = useState("study");
+  const [menuOpen, setMenuOpen] = useState(false);
 
   // Restore session on mount: verify the stored token, if any.
   // Await BOTH /auth/me and the cards before any setState, so there is never a
@@ -3375,6 +3443,32 @@ export default function App() {
               style={{ marginLeft: "auto", opacity: 0.6 }}
             >↩ {user}</button>
           </nav>
+
+          <button
+            className="hamburger-btn"
+            onClick={() => setMenuOpen(o => !o)}
+            aria-label="Menú"
+            aria-expanded={menuOpen}
+          >{menuOpen ? "✕" : "☰"}</button>
+
+          {menuOpen && (
+            <>
+              <div className="menu-backdrop" onClick={() => setMenuOpen(false)} />
+              <div className="menu-panel">
+                {VIEWS.map(v => (
+                  <button
+                    key={v.id}
+                    className={`menu-item ${view === v.id ? "active" : ""}`}
+                    onClick={() => { setView(v.id); setMenuOpen(false); }}
+                  >{v.label}</button>
+                ))}
+                <button
+                  className="menu-item menu-logout"
+                  onClick={() => { setMenuOpen(false); handleLogout(); }}
+                >↩ {user}</button>
+              </div>
+            </>
+          )}
         </header>
 
         {view === "study" && <StudyView cards={cards} onGrade={gradeCard} onUpdateCards={setCards} />}
