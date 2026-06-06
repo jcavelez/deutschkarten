@@ -505,7 +505,7 @@ const css = `
 
   .list-item {
     display: grid;
-    grid-template-columns: 30px 1fr auto auto auto auto;
+    grid-template-columns: 30px 1fr auto auto;
     align-items: center;
     gap: 0.6rem;
     padding: 0.6rem 0.75rem;
@@ -516,6 +516,8 @@ const css = `
   }
 
   .list-item:hover { box-shadow: 0 6px 16px -4px rgba(60,40,20,.16); }
+
+  .li-actions { display: flex; align-items: center; gap: 0.4rem; }
 
   .li-german {
     font-family: 'Playfair Display', serif;
@@ -629,7 +631,7 @@ const css = `
     color: var(--text-faint);
     cursor: pointer;
     padding: 0.2rem 0.4rem;
-    border-radius: 2px;
+    border-radius: 6px;
     transition: color 0.2s;
     flex-shrink: 0;
     display: flex;
@@ -1013,7 +1015,7 @@ const css = `
     border: none;
     cursor: pointer;
     padding: 0.15rem 0.3rem;
-    border-radius: 2px;
+    border-radius: 6px;
     flex-shrink: 0;
     transition: opacity 0.2s;
     display: flex;
@@ -1025,7 +1027,7 @@ const css = `
     width: 28px;
     height: 28px;
     object-fit: cover;
-    border-radius: 2px;
+    border-radius: 6px;
     border: 1px solid var(--border);
     display: block;
   }
@@ -1033,7 +1035,7 @@ const css = `
   .preview-thumb-empty {
     width: 28px;
     height: 28px;
-    border-radius: 2px;
+    border-radius: 6px;
     border: 1px dashed var(--border-input);
     background: var(--bg);
     display: flex;
@@ -1924,7 +1926,7 @@ const css = `
 
     /* List: stack german+trans vertically, keep days right */
     .list-item {
-      grid-template-columns: 30px 1fr auto auto auto;
+      grid-template-columns: 30px 1fr auto auto;
       grid-template-rows: auto;
     }
 
@@ -3122,14 +3124,16 @@ function ListView({ cards, onDelete, onDeleteAll, onEdit }) {
                 {c.note && <div className="li-note">{c.note}</div>}
               </div>
               <div className={`li-next ${isDue ? "due" : ""}`}>{daysUntil(c.nextReview)}</div>
-              <button className="preview-card-btn" onClick={() => setCardPreview(c)} title="Vista previa">
-                <svg width="13" height="10" viewBox="0 0 13 10" fill="none" xmlns="http://www.w3.org/2000/svg" style={{display:"block"}}>
-                  <path d="M6.5 1C3.5 1 1 4 1 5C1 6 3.5 9 6.5 9C9.5 9 12 6 12 5C12 4 9.5 1 6.5 1Z" stroke="currentColor" strokeWidth="1.1" fill="none"/>
-                  <circle cx="6.5" cy="5" r="1.5" stroke="currentColor" strokeWidth="1.1" fill="none"/>
-                </svg>
-              </button>
-              <button className="edit-btn" onClick={() => setEditingCard(c)}>✎</button>
-              <button className="delete-btn" onClick={() => onDelete(c.id)}>×</button>
+              <div className="li-actions">
+                <button className="preview-card-btn" onClick={() => setCardPreview(c)} title="Vista previa">
+                  <svg width="13" height="10" viewBox="0 0 13 10" fill="none" xmlns="http://www.w3.org/2000/svg" style={{display:"block"}}>
+                    <path d="M6.5 1C3.5 1 1 4 1 5C1 6 3.5 9 6.5 9C9.5 9 12 6 12 5C12 4 9.5 1 6.5 1Z" stroke="currentColor" strokeWidth="1.1" fill="none"/>
+                    <circle cx="6.5" cy="5" r="1.5" stroke="currentColor" strokeWidth="1.1" fill="none"/>
+                  </svg>
+                </button>
+                <button className="edit-btn" onClick={() => setEditingCard(c)}>✎</button>
+                <button className="delete-btn" onClick={() => onDelete(c.id)}>×</button>
+              </div>
             </div>
           );
         })}
