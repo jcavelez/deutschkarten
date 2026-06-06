@@ -168,7 +168,7 @@ const css = `
     border-radius: 2px;
     overflow: hidden;
     flex-shrink: 0;
-    box-shadow: 0 0 0 1px rgba(255,255,255,0.06);
+    box-shadow: 0 0 0 1px rgba(60,40,20,0.12);
   }
 
   .logo-text {
@@ -333,7 +333,7 @@ const css = `
   .grades {
     display: grid;
     grid-template-columns: repeat(5, 1fr);
-    gap: 0.5rem;
+    gap: 0.6rem;
     margin-bottom: 1rem;
   }
 
@@ -343,34 +343,28 @@ const css = `
     align-items: center;
     gap: 0.3rem;
     padding: 0.7rem 0.4rem;
-    box-shadow: var(--shadow-soft);
+    box-shadow: 0 1px 2px rgba(60,40,20,.06);
     background: var(--surface);
-    border-radius: 3px;
+    border: 1px solid var(--border);
+    border-radius: 10px;
     cursor: pointer;
     transition: border-color 0.2s, background 0.2s;
     font-family: 'DM Mono', monospace;
   }
 
-  .grade-btn:hover { background: #222; }
-
-  .grade-btn.g0:hover { border-color: var(--danger); }
-  .grade-btn.g1:hover { border-color: #aa2200; }
-  .grade-btn.g2:hover { border-color: #886600; }
-  .grade-btn.g3:hover { border-color: #aa8800; }
-  .grade-btn.g4:hover { border-color: #ccaa00; }
-  .grade-btn.g5:hover { border-color: var(--accent); }
+  .grade-btn:hover { background: var(--surface-alt); box-shadow: var(--shadow-soft); }
 
   .grade-num {
     font-size: 1.1rem;
     font-weight: 500;
   }
 
-  .grade-btn.g0 .grade-num { color: var(--danger); }
-  .grade-btn.g1 .grade-num { color: #dd4400; }
-  .grade-btn.g2 .grade-num { color: #bb8800; }
-  .grade-btn.g3 .grade-num { color: #ccaa00; }
-  .grade-btn.g4 .grade-num { color: #ddbb00; }
-  .grade-btn.g5 .grade-num { color: var(--accent); }
+  .grade-btn.g0 .grade-num { color: #B23B2E; }
+  .grade-btn.g1 .grade-num { color: #C26A3A; }
+  .grade-btn.g2 .grade-num { color: #B89020; }
+  .grade-btn.g3 .grade-num { color: #8A9A3A; }
+  .grade-btn.g4 .grade-num { color: #6A8A45; }
+  .grade-btn.g5 .grade-num { color: #5A7A4E; }
 
   .grade-label {
     font-size: 0.55rem;
@@ -401,13 +395,13 @@ const css = `
   .explain-btn:disabled { opacity: 0.3; cursor: not-allowed; }
 
   .explanation {
-    background: #181818;
+    background: var(--surface-alt);
     border: 1px solid var(--border);
     border-radius: 3px;
     padding: 1.25rem 1.5rem;
     font-size: 0.78rem;
     line-height: 1.8;
-    color: #c8c0a8;
+    color: var(--text-2);
     white-space: pre-wrap;
     overflow-wrap: break-word;
     margin-bottom: 1rem;
@@ -519,7 +513,7 @@ const css = `
     transition: border-color 0.2s;
   }
 
-  .list-item:hover { border-color: var(--danger); }
+  .list-item:hover { box-shadow: 0 6px 16px -4px rgba(60,40,20,.16); }
 
   .li-german {
     font-family: 'Playfair Display', serif;
@@ -561,7 +555,7 @@ const css = `
     position: fixed;
     inset: 0;
     pointer-events: none;
-    opacity: 0.03;
+    opacity: 0.015;
     background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
     background-size: 180px;
     z-index: 9999;
@@ -651,7 +645,7 @@ const css = `
 
   .bulk-schema code {
     color: var(--accent);
-    background: #222;
+    background: var(--surface-alt);
     padding: 0.1em 0.3em;
     border-radius: 2px;
     font-size: 0.9em;
@@ -726,7 +720,7 @@ const css = `
   .url-input:focus { border-color: var(--danger); }
 
   .url-set-btn {
-    background: #222;
+    background: var(--surface-alt);
     border: 1px solid var(--border-input);
     border-radius: 2px;
     color: var(--accent);
@@ -738,7 +732,7 @@ const css = `
     transition: background 0.2s;
     white-space: nowrap;
   }
-  .url-set-btn:hover { background: #2a2a2a; }
+  .url-set-btn:hover { background: var(--surface-alt); }
 
   .media-preview-label {
     font-size: 0.62rem;
@@ -1272,7 +1266,7 @@ const css = `
     cursor: pointer;
     transition: all 0.2s;
   }
-  .list-filter-btn.active { border-color: var(--danger); color: var(--text); background: #1a0000; }
+  .list-filter-btn.active { border-color: var(--danger); color: var(--text); background: var(--danger-soft); }
   .list-filter-btn:hover:not(.active) { border-color: var(--text-faint); color: var(--text-2); }
 
   /* ── Toast ── */
@@ -1357,7 +1351,7 @@ const css = `
 
   .stats-bar-wrap {
     height: 10px;
-    background: #222;
+    background: var(--surface-alt);
     border-radius: 2px;
     overflow: hidden;
   }
@@ -1380,6 +1374,7 @@ const css = `
     font-size: 0.9rem;
     font-family: 'Playfair Display', serif;
     font-weight: 700;
+    color: var(--text);
   }
 
   .stats-pct {
@@ -1402,9 +1397,10 @@ const css = `
   }
 
   .kpi-val {
-    font-family: 'Playfair Display', serif;
+    font-family: 'DM Mono', monospace;
     font-size: 1.8rem;
-    font-weight: 700;
+    font-weight: 500;
+    color: var(--text);
     line-height: 1;
     margin-bottom: 0.4rem;
   }
@@ -1436,9 +1432,9 @@ const css = `
     font-size: 0.58rem;
     letter-spacing: 0.1em;
     text-transform: uppercase;
-    color: var(--text-dim);
-    background: rgba(0,0,0,0.6);
-    border: 1px solid #3a3a3a;
+    color: var(--text-2);
+    background: var(--surface-alt);
+    border: 1px solid var(--border);
     border-radius: 2px;
     padding: 0.2rem 0.5rem;
   }
@@ -1598,7 +1594,7 @@ const css = `
   .type-btn.active {
     border-color: var(--danger);
     color: var(--text);
-    background: #1a0000;
+    background: var(--danger-soft);
   }
   .type-btn:hover:not(.active) { border-color: var(--text-faint); color: var(--text-2); }
 
@@ -1721,7 +1717,7 @@ const css = `
     background: var(--danger);
     border: none;
     border-radius: 2px;
-    color: var(--text);
+    color: #FFFFFF;
     font-family: 'DM Mono', monospace;
     font-size: 0.7rem;
     letter-spacing: 0.1em;
@@ -1767,7 +1763,7 @@ const css = `
     transition: background 0.2s, color 0.2s;
     margin-top: 0.25rem;
   }
-  .continuar-btn:hover { background: #2a2200; color: #ffe566; }
+  .continuar-btn:hover { background: var(--accent-soft); color: var(--accent); }
   .continuar-btn::after { content: " →"; font-size: 0.85rem; }
 
   .answer-feedback {
@@ -1808,7 +1804,7 @@ const css = `
     transition: all 0.15s;
     text-align: center;
   }
-  .article-btn:hover:not(:disabled) { border-color: var(--accent); color: var(--accent); background: var(--accent-soft); }
+  .article-btn:hover:not(:disabled) { color: var(--accent); background: var(--accent-soft); }
   .article-btn.correct { border-color: var(--ok); color: var(--ok-text); background: var(--ok-soft); }
   .article-btn.wrong   { border-color: var(--danger); color: #ff8888; background: var(--danger-soft); }
   .article-btn.reveal  { border-color: var(--ok); color: var(--ok-text); background: var(--ok-soft); }
@@ -1891,7 +1887,7 @@ const css = `
     /* 6 grade buttons -> 3+3 on mobile */
     .grades {
       grid-template-columns: repeat(3, 1fr);
-      gap: 0.4rem;
+      gap: 0.5rem;
     }
 
     .grade-btn {
@@ -2657,12 +2653,12 @@ function StatsView({ cards }) {
   const DAY = 86400000;
 
   const buckets = [
-    { label: "Nuevas",   color: "#555",    count: 0 },
-    { label: "Hoy",      color: "#cc0000", count: 0 },
-    { label: "Mañana",   color: "#dd6600", count: 0 },
-    { label: "3–7 días", color: "#bb9900", count: 0 },
-    { label: "8–30 días",color: "#888800", count: 0 },
-    { label: "+30 días", color: "#446600", count: 0 },
+    { label: "Nuevas",   color: "#B4642F", count: 0 },
+    { label: "Hoy",      color: "#C8825B", count: 0 },
+    { label: "Mañana",   color: "#D29E78", count: 0 },
+    { label: "3–7 días", color: "#DBB596", count: 0 },
+    { label: "8–30 días",color: "#E2CBB3", count: 0 },
+    { label: "+30 días", color: "#E8D9C5", count: 0 },
   ];
 
   for (const c of cards) {
@@ -2706,7 +2702,7 @@ function StatsView({ cards }) {
                 />
               </div>
               <div className="stats-row-count">
-                <span className="stats-n" style={{ color: b.color }}>{b.count}</span>
+                <span className="stats-n">{b.count}</span>
                 <span className="stats-pct">{ofTotal}%</span>
               </div>
             </div>
