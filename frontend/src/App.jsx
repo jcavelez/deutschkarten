@@ -20,6 +20,7 @@ const LANG_LABELS = {
   de: {
     name: "Alemán", code: "DE",
     wordPh: "z.B. der Schlüssel",
+    blankWordPh: "z.B. Hund (solo la palabra)",
     exLabel: "Ejemplo en alemán",
     exPh: "Der Hund läuft schnell.",
     blankPh: "Der ___ läuft schnell.",
@@ -28,6 +29,7 @@ const LANG_LABELS = {
   fr: {
     name: "Francés", code: "FR",
     wordPh: "p.ej. le chien",
+    blankWordPh: "p.ej. chien (solo la palabra)",
     exLabel: "Ejemplo en francés",
     exPh: "Le chien court vite.",
     blankPh: "Le ___ court vite.",
@@ -2665,8 +2667,8 @@ function AddView({ onAdd, onBulkAdd, language }) {
             {cardTypeOptions.find(o => o.id === cardType)?.tip}
           </div>
           <div className="field">
-            <label>{L.name}</label>
-            <input value={german} onChange={e => setGerman(e.target.value)} placeholder={L.wordPh} />
+            <label>{cardType === "type5" ? "Palabra que va en el hueco" : L.name}</label>
+            <input value={german} onChange={e => setGerman(e.target.value)} placeholder={cardType === "type5" ? L.blankWordPh : L.wordPh} />
           </div>
           <div className="field">
             <label>Traducción</label>
@@ -3086,8 +3088,8 @@ function EditModal({ card, onSave, onClose, language }) {
             {cardTypeOptions.find(o => o.id === cardType)?.tip}
           </div>
           <div className="field">
-            <label>{L.name}</label>
-            <input value={german} onChange={e => setGerman(e.target.value)} />
+            <label>{cardType === "type5" ? "Palabra que va en el hueco" : L.name}</label>
+            <input value={german} onChange={e => setGerman(e.target.value)} placeholder={cardType === "type5" ? L.blankWordPh : ""} />
           </div>
           <div className="field">
             <label>Traducción</label>
