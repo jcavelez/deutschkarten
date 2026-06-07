@@ -1629,6 +1629,7 @@ const css = `
   }
 
   .type-btn {
+    position: relative;
     flex: 1;
     padding: 0.5rem;
     background: var(--bg);
@@ -1650,6 +1651,50 @@ const css = `
     background: var(--danger-soft);
   }
   .type-btn:hover:not(.active) { border-color: var(--text-faint); color: var(--text-2); }
+
+  /* Tooltip explaining how each card type works */
+  .type-tip {
+    position: absolute;
+    bottom: calc(100% + 8px);
+    left: 50%;
+    transform: translateX(-50%);
+    width: 190px;
+    max-width: 70vw;
+    padding: 0.55rem 0.7rem;
+    background: var(--text);
+    color: var(--bg);
+    border-radius: 6px;
+    box-shadow: var(--shadow-card);
+    font-size: 0.66rem;
+    letter-spacing: 0;
+    text-transform: none;
+    text-align: left;
+    line-height: 1.45;
+    opacity: 0;
+    visibility: hidden;
+    pointer-events: none;
+    transition: opacity 0.15s ease;
+    z-index: 20;
+  }
+  .type-tip::after {
+    content: "";
+    position: absolute;
+    top: 100%;
+    left: 50%;
+    transform: translateX(-50%);
+    border: 5px solid transparent;
+    border-top-color: var(--text);
+  }
+  .type-btn:hover .type-tip,
+  .type-btn:focus-visible .type-tip { opacity: 1; visibility: visible; }
+
+  /* Always-visible description of the currently selected card type (mobile-friendly) */
+  .type-tip-static {
+    margin: -0.75rem 0 1.25rem;
+    color: var(--text-dim);
+    font-size: 0.72rem;
+    line-height: 1.45;
+  }
 
 
   /* ── Type 4: español → escribir alemán ── */
@@ -2476,6 +2521,14 @@ function StudyView({ cards, onGrade, language }) {
 
 function AddView({ onAdd, onBulkAdd, language }) {
   const L = LANG_LABELS[language] || LANG_LABELS.de;
+  const articleHint = (ARTICLES[language] || ARTICLES.de).join(" / ");
+  const cardTypeOptions = [
+    { id: "type1", name: "Imagen",    tip: "Muestra una imagen; la tocas para voltear y ver la palabra. Requiere una URL de imagen." },
+    { id: "type2", name: "Ejemplo",   tip: `Muestra la palabra con una frase de ejemplo; volteas para ver la traducción.` },
+    { id: "type4", name: "Traducir",  tip: `Te muestra el español y escribes la palabra en ${L.name.toLowerCase()}; corrige tu respuesta.` },
+    { id: "type5", name: "Completar", tip: "Una frase con un hueco (___); escribes la palabra que falta." },
+    { id: "type6", name: "Artículo",  tip: `Eliges el artículo/género correcto (${articleHint}).` },
+  ];
   const [tab, setTab] = useState("single");
 
   const [cardType, setCardType] = useState("type1");
@@ -2569,11 +2622,19 @@ function AddView({ onAdd, onBulkAdd, language }) {
       {tab === "single" && (
         <>
           <div className="type-selector" style={{flexWrap:"wrap"}}>
-            <button className={`type-btn ${cardType === "type1" ? "active" : ""}`} onClick={() => setCardType("type1")}>Tipo 1<br/>Imagen → Palabra</button>
-            <button className={`type-btn ${cardType === "type2" ? "active" : ""}`} onClick={() => setCardType("type2")}>Tipo 2<br/>Ejemplo → Traducción</button>
-            <button className={`type-btn ${cardType === "type4" ? "active" : ""}`} onClick={() => setCardType("type4")}>Tipo 4<br/>ES → escribir {L.code}</button>
-            <button className={`type-btn ${cardType === "type5" ? "active" : ""}`} onClick={() => setCardType("type5")}>Tipo 5<br/>Completar</button>
-            <button className={`type-btn ${cardType === "type6" ? "active" : ""}`} onClick={() => setCardType("type6")}>Tipo 6<br/>Artículo</button>
+            {cardTypeOptions.map(opt => (
+              <button
+                key={opt.id}
+                className={`type-btn ${cardType === opt.id ? "active" : ""}`}
+                onClick={() => setCardType(opt.id)}
+              >
+                {opt.name}
+                <span className="type-tip" role="tooltip">{opt.tip}</span>
+              </button>
+            ))}
+          </div>
+          <div className="type-tip-static">
+            {cardTypeOptions.find(o => o.id === cardType)?.tip}
           </div>
           <div className="field">
             <label>{L.name}</label>
