@@ -582,6 +582,74 @@ const css = `
 
   .submit-btn:hover { background: var(--danger-hover); transform: translateY(-2px); box-shadow: 0 8px 20px -4px rgba(178,59,46,0.35); }
 
+  /* ── Login / inicio (warm light theme, matching internal pages) ── */
+  .auth-screen {
+    min-height: 100vh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 1.5rem;
+  }
+  .auth-card {
+    position: relative;
+    width: 100%;
+    max-width: 380px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    box-shadow: var(--shadow-card);
+    padding: 2.75rem 2rem 2.25rem;
+  }
+  .auth-logo {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.6rem;
+    margin-bottom: 0.4rem;
+  }
+  .auth-logo .logo-text { font-size: 1.7rem; }
+  .auth-tagline {
+    text-align: center;
+    color: var(--text-dim);
+    font-size: 0.62rem;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    margin-bottom: 2.25rem;
+  }
+  .auth-form { display: flex; flex-direction: column; gap: 0.9rem; }
+  .auth-input {
+    width: 100%;
+    background: var(--bg);
+    border: 1px solid var(--border-input);
+    border-radius: 8px;
+    padding: 0.8rem 1rem;
+    color: var(--text);
+    font-family: 'DM Mono', monospace;
+    font-size: 0.9rem;
+    outline: none;
+    transition: border-color 0.16s ease, box-shadow 0.16s ease;
+  }
+  .auth-input:focus { border-color: var(--accent); box-shadow: var(--focus-ring); }
+  .auth-input::placeholder { color: var(--text-faint); }
+  .auth-error { color: var(--danger); font-size: 0.8rem; margin: 0; }
+  .auth-btn {
+    margin-top: 0.4rem;
+    background: var(--danger);
+    box-shadow: var(--shadow-pop);
+    border: none;
+    border-radius: 8px;
+    color: #FFFFFF;
+    font-family: 'DM Mono', monospace;
+    font-size: 0.72rem;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    padding: 0.85rem;
+    cursor: pointer;
+    transition: background 0.16s ease, transform 0.16s ease, box-shadow 0.16s ease;
+  }
+  .auth-btn:hover:not(:disabled) { background: var(--danger-hover); transform: translateY(-2px); box-shadow: 0 8px 20px -4px rgba(178,59,46,0.35); }
+  .auth-btn:disabled { opacity: 0.6; cursor: default; }
+
   .success-msg {
     margin-top: 1rem;
     font-size: 0.7rem;
@@ -3325,40 +3393,11 @@ function ListView({ cards, onDelete, onDeleteAll, onEdit, language }) {
 }
 
 // ── Auth View ─────────────────────────────────────────────────────────────────
-const LANGS = [
-  {
-    code: "de",
-    label: "Deutsch",
-    flag: (
-      <svg viewBox="0 0 28 19" xmlns="http://www.w3.org/2000/svg" style={{ width: 28, flexShrink: 0 }}>
-        <rect width="28" height="6.33" y="0" fill="#000"/>
-        <rect width="28" height="6.34" y="6.33" fill="#D00"/>
-        <rect width="28" height="6.33" y="12.67" fill="#FFCE00"/>
-      </svg>
-    ),
-    accent: "#FFCE00",
-  },
-  {
-    code: "fr",
-    label: "Français",
-    flag: (
-      <svg viewBox="0 0 28 19" xmlns="http://www.w3.org/2000/svg" style={{ width: 28, flexShrink: 0 }}>
-        <rect width="9.33" height="19" x="0" fill="#002395"/>
-        <rect width="9.34" height="19" x="9.33" fill="#fff"/>
-        <rect width="9.33" height="19" x="18.67" fill="#ED2939"/>
-      </svg>
-    ),
-    accent: "#ED2939",
-  },
-];
-
 function AuthView({ onAuth }) {
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState(null);
   const [loading, setLoading] = useState(false);
-
-  const lang = LANGS.find(l => l.code === "de"); // branding only; no language picker on login
 
   async function handleSubmit(e) {
     e.preventDefault();
@@ -3379,50 +3418,29 @@ function AuthView({ onAuth }) {
   }
 
   return (
-    <div style={{
-      minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center",
-      background: "#111111",
-    }}>
+    <div className="auth-screen">
       <style>{FONTS}{css}</style>
-      <div style={{
-        width: "100%", maxWidth: 380, padding: "2.5rem 2rem",
-        background: "#1a1a1a", borderRadius: 12, border: "1px solid #2a2a2a",
-      }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: "2rem" }}>
-          {lang.flag}
-          <span style={{ fontFamily: "'Playfair Display', serif", fontSize: "1.4rem", color: "#f0ece0" }}>
-            Sprachen<span style={{ color: lang.accent }}>Karten</span>
-          </span>
+      <div className="noise" />
+      <div className="auth-card">
+        <div className="auth-logo">
+          <span className="logo-text">Sprachen<span>Karten</span></span>
         </div>
+        <p className="auth-tagline">Tarjetas de idiomas</p>
 
-        <form onSubmit={handleSubmit} style={{ display: "flex", flexDirection: "column", gap: "1rem" }}>
+        <form className="auth-form" onSubmit={handleSubmit}>
           <input
+            className="auth-input"
             type="text" placeholder="Usuario" value={username} autoComplete="username"
             onChange={e => setUsername(e.target.value)} required
-            style={{
-              padding: "0.7rem 1rem", borderRadius: 6, border: "1px solid #333",
-              background: "#222", color: "#f0ece0", fontFamily: "'DM Mono', monospace",
-              fontSize: "0.9rem", outline: "none",
-            }}
           />
           <input
+            className="auth-input"
             type="password" placeholder="Contraseña" value={password} autoComplete="current-password"
             onChange={e => setPassword(e.target.value)} required
-            style={{
-              padding: "0.7rem 1rem", borderRadius: 6, border: "1px solid #333",
-              background: "#222", color: "#f0ece0", fontFamily: "'DM Mono', monospace",
-              fontSize: "0.9rem", outline: "none",
-            }}
           />
 
-          {error && (
-            <p style={{ color: "#e05c5c", fontSize: "0.8rem", margin: 0 }}>{error}</p>
-          )}
-          <button type="submit" disabled={loading} style={{
-            padding: "0.75rem", borderRadius: 6, border: "none", cursor: "pointer",
-            background: lang.accent, color: "#111", fontFamily: "'DM Mono', monospace",
-            fontSize: "0.9rem", fontWeight: 600, opacity: loading ? 0.6 : 1,
-          }}>
+          {error && <p className="auth-error">{error}</p>}
+          <button className="auth-btn" type="submit" disabled={loading}>
             {loading ? "…" : "Entrar"}
           </button>
         </form>
