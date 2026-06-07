@@ -7,16 +7,63 @@ function mediaUrl(url) {
 }
 
 // ── Web Speech ───────────────────────────────────────────────────────────────
+// BCP-47 tags for speech synthesis, keyed by the app's language code.
+const SPEECH_LANG = { de: "de-DE", fr: "fr-FR" };
+
+// Definite articles shown on Type 6 (article) cards, by language. French keeps
+// the elided "l'" so vowel-initial nouns still get a valid choice.
+const ARTICLES = { de: ["der", "die", "das"], fr: ["le", "la", "l'"] };
+
+// Language-specific labels and example placeholders for the Add form, so the UI
+// matches the user's target language instead of always saying "alemán/DE".
+const LANG_LABELS = {
+  de: {
+    name: "Alemán", code: "DE",
+    wordPh: "z.B. der Schlüssel",
+    exLabel: "Ejemplo en alemán",
+    exPh: "Der Hund läuft schnell.",
+    blankPh: "Der ___ läuft schnell.",
+    bulkPh: `[\n  { "german": "der Hund", "translation": "el perro", "note": "masc." },\n  { "german": "die Katze", "translation": "la gata" }\n]`,
+  },
+  fr: {
+    name: "Francés", code: "FR",
+    wordPh: "p.ej. le chien",
+    exLabel: "Ejemplo en francés",
+    exPh: "Le chien court vite.",
+    blankPh: "Le ___ court vite.",
+    bulkPh: `[\n  { "german": "le chien", "translation": "el perro", "note": "masc." },\n  { "german": "la maison", "translation": "la casa" }\n]`,
+  },
+};
+
+// Current language for pronunciation. Set from <App> so speak() stays callable
+// from leaf components without threading the prop through every call site.
+let speechLang = "de";
+function setSpeechLang(code) { if (SPEECH_LANG[code]) speechLang = code; }
+
+// Split a word like "der Hund" / "le chien" / "l'eau" into its leading article
+// and the bare noun, picking the article set for the given language.
+function parseArticle(word, language = "de") {
+  const articles = ARTICLES[language] || ARTICLES.de;
+  const raw = (word || "").trim();
+  const lower = raw.toLowerCase();
+  const correct = articles.find(a =>
+    a.endsWith("'") ? lower.startsWith(a) : lower.startsWith(a + " ")
+  ) || "";
+  const bare = correct ? raw.slice(correct.length).trimStart() : raw;
+  return { articles, correct, bare };
+}
+
 function speak(text) {
   if (!window.speechSynthesis) return;
   window.speechSynthesis.cancel();
   const utt = new SpeechSynthesisUtterance(text);
-  utt.lang = "de-DE";
+  const code = SPEECH_LANG[speechLang] || "de-DE";
+  utt.lang = code;
   utt.rate = 0.9;
-  // Prefer a German voice if available
+  // Prefer a voice matching the active language if available
   const voices = window.speechSynthesis.getVoices();
-  const deVoice = voices.find(v => v.lang.startsWith("de"));
-  if (deVoice) utt.voice = deVoice;
+  const voice = voices.find(v => v.lang.startsWith(code.slice(0, 2)));
+  if (voice) utt.voice = voice;
   window.speechSynthesis.speak(utt);
 }
 
@@ -2031,11 +2078,12 @@ function CardType2Back({ card }) {
 }
 
 
-function CardType4Front({ card }) {
+function CardType4Front({ card, language }) {
+  const L = LANG_LABELS[language] || LANG_LABELS.de;
   return (
     <div className="t4-front">
       <div className="card-type-badge">Tipo 4</div>
-      <div className="t4-label">¿Cómo se dice en alemán?</div>
+      <div className="t4-label">¿Cómo se dice en {L.name.toLowerCase()}?</div>
       <div className="t4-word">{card.translation}</div>
       {card.note && <div className="t4-note">{card.note}</div>}
     </div>
@@ -2062,8 +2110,8 @@ function CardType5Front({ card }) {
   );
 }
 
-function CardType6Front({ card }) {
-  const bare = card.german.replace(/^(der|die|das)\s+/i, "");
+function CardType6Front({ card, language }) {
+  const { bare } = parseArticle(card.german, language);
   return (
     <div className="t6-front">
       <div className="card-type-badge">Tipo 6</div>
@@ -2075,7 +2123,8 @@ function CardType6Front({ card }) {
 }
 
 // ── Interactive answer zones ──────────────────────────────────────────────────
-function AnswerZoneType4({ card, onGrade, onExplain, explaining, explanation }) {
+function AnswerZoneType4({ card, language, onGrade, onExplain, explaining, explanation }) {
+  const L = LANG_LABELS[language] || LANG_LABELS.de;
   const [value, setValue] = useState("");
   const [result, setResult] = useState(null);
   const inputRef = React.useRef(null);
@@ -2102,7 +2151,7 @@ function AnswerZoneType4({ card, onGrade, onExplain, explaining, explanation }) 
           value={value}
           onChange={e => setValue(e.target.value)}
           onKeyDown={e => { if (e.key === "Enter" && !result) check(); }}
-          placeholder="Escribe en alemán…"
+          placeholder={`Escribe en ${L.name.toLowerCase()}…`}
           disabled={!!result}
         />
         <button className="answer-check-btn" onClick={check} disabled={!!result || !value.trim()}>OK</button>
@@ -2229,9 +2278,9 @@ function AnswerZoneType5({ card, onGrade, onExplain, explaining, explanation }) 
   );
 }
 
-function AnswerZoneType6({ card, onGrade, onExplain, explaining, explanation }) {
+function AnswerZoneType6({ card, language, onGrade, onExplain, explaining, explanation }) {
   const [picked, setPicked] = useState(null);
-  const correct = card.german.match(/^(der|die|das)/i)?.[1]?.toLowerCase() || "";
+  const { articles, correct } = parseArticle(card.german, language);
 
   const choose = (article) => {
     if (picked) return;
@@ -2248,7 +2297,7 @@ function AnswerZoneType6({ card, onGrade, onExplain, explaining, explanation }) 
   return (
     <div className="answer-zone">
       <div className="article-btns">
-        {["der", "die", "das"].map(art => (
+        {articles.map(art => (
           <button
             key={art}
             className={`article-btn ${btnClass(art)}`}
@@ -2281,7 +2330,7 @@ function AnswerZoneType6({ card, onGrade, onExplain, explaining, explanation }) 
 }
 
 // ── Components ───────────────────────────────────────────────────────────────
-function StudyView({ cards, onGrade }) {
+function StudyView({ cards, onGrade, language }) {
   const [flipped, setFlipped] = useState(false);
   const [explaining, setExplaining] = useState(false);
   const [explanation, setExplanation] = useState(null);
@@ -2388,9 +2437,9 @@ function StudyView({ cards, onGrade }) {
       {isInteractive && (
         <div className="card-scene">
           <div className="card-static">
-            {cardType === "type4" && <CardType4Front card={card} />}
+            {cardType === "type4" && <CardType4Front card={card} language={language} />}
             {cardType === "type5" && <CardType5Front card={card} />}
-            {cardType === "type6" && <CardType6Front card={card} />}
+            {cardType === "type6" && <CardType6Front card={card} language={language} />}
           </div>
         </div>
       )}
@@ -2398,9 +2447,9 @@ function StudyView({ cards, onGrade }) {
       {/* ── Answer zones for interactive types ── */}
       {isInteractive && (
         <React.Fragment key={interactiveKey}>
-          {cardType === "type4" && <AnswerZoneType4 card={card} onGrade={handleGrade} onExplain={handleExplain} explaining={explaining} explanation={explanation} />}
+          {cardType === "type4" && <AnswerZoneType4 card={card} language={language} onGrade={handleGrade} onExplain={handleExplain} explaining={explaining} explanation={explanation} />}
           {cardType === "type5" && <AnswerZoneType5 card={card} onGrade={handleGrade} onExplain={handleExplain} explaining={explaining} explanation={explanation} />}
-          {cardType === "type6" && <AnswerZoneType6 card={card} onGrade={handleGrade} onExplain={handleExplain} explaining={explaining} explanation={explanation} />}
+          {cardType === "type6" && <AnswerZoneType6 card={card} language={language} onGrade={handleGrade} onExplain={handleExplain} explaining={explaining} explanation={explanation} />}
         </React.Fragment>
       )}
 
@@ -2425,7 +2474,8 @@ function StudyView({ cards, onGrade }) {
   );
 }
 
-function AddView({ onAdd, onBulkAdd }) {
+function AddView({ onAdd, onBulkAdd, language }) {
+  const L = LANG_LABELS[language] || LANG_LABELS.de;
   const [tab, setTab] = useState("single");
 
   const [cardType, setCardType] = useState("type1");
@@ -2521,13 +2571,13 @@ function AddView({ onAdd, onBulkAdd }) {
           <div className="type-selector" style={{flexWrap:"wrap"}}>
             <button className={`type-btn ${cardType === "type1" ? "active" : ""}`} onClick={() => setCardType("type1")}>Tipo 1<br/>Imagen → Palabra</button>
             <button className={`type-btn ${cardType === "type2" ? "active" : ""}`} onClick={() => setCardType("type2")}>Tipo 2<br/>Ejemplo → Traducción</button>
-            <button className={`type-btn ${cardType === "type4" ? "active" : ""}`} onClick={() => setCardType("type4")}>Tipo 4<br/>ES → escribir DE</button>
+            <button className={`type-btn ${cardType === "type4" ? "active" : ""}`} onClick={() => setCardType("type4")}>Tipo 4<br/>ES → escribir {L.code}</button>
             <button className={`type-btn ${cardType === "type5" ? "active" : ""}`} onClick={() => setCardType("type5")}>Tipo 5<br/>Completar</button>
             <button className={`type-btn ${cardType === "type6" ? "active" : ""}`} onClick={() => setCardType("type6")}>Tipo 6<br/>Artículo</button>
           </div>
           <div className="field">
-            <label>Alemán</label>
-            <input value={german} onChange={e => setGerman(e.target.value)} placeholder="z.B. der Schlüssel" />
+            <label>{L.name}</label>
+            <input value={german} onChange={e => setGerman(e.target.value)} placeholder={L.wordPh} />
           </div>
           <div className="field">
             <label>Traducción</label>
@@ -2540,8 +2590,8 @@ function AddView({ onAdd, onBulkAdd }) {
           {(cardType === "type2" || cardType === "type5") && (
             <>
               <div className="field">
-                <label>{cardType === "type5" ? 'Oración con ___ (espacio en blanco)' : 'Ejemplo en alemán'}</label>
-                <input value={example} onChange={e => setExample(e.target.value)} placeholder={cardType === "type5" ? 'Der ___ läuft schnell.' : 'Der Hund läuft schnell.'} />
+                <label>{cardType === "type5" ? 'Oración con ___ (espacio en blanco)' : L.exLabel}</label>
+                <input value={example} onChange={e => setExample(e.target.value)} placeholder={cardType === "type5" ? L.blankPh : L.exPh} />
               </div>
               <div className="field">
                 <label>Traducción del ejemplo</label>
@@ -2634,7 +2684,7 @@ function AddView({ onAdd, onBulkAdd }) {
               className="bulk-textarea"
               value={json}
               onChange={e => setJson(e.target.value)}
-              placeholder={`[\n  { "german": "der Hund", "translation": "el perro", "note": "masc." },\n  { "german": "die Katze", "translation": "la gata" }\n]`}
+              placeholder={L.bulkPh}
             />
           </div>
           <div className="bulk-schema">
@@ -2895,7 +2945,8 @@ function CardPreviewModal({ card, onClose }) {
   );
 }
 
-function EditModal({ card, onSave, onClose }) {
+function EditModal({ card, onSave, onClose, language }) {
+  const L = LANG_LABELS[language] || LANG_LABELS.de;
   const [cardType, setCardType] = useState(card.cardType || "type1");
   const [german, setGerman] = useState(card.german);
   const [translation, setTranslation] = useState(card.translation);
@@ -2933,7 +2984,7 @@ function EditModal({ card, onSave, onClose }) {
             <button className={`type-btn ${cardType === "type6" ? "active" : ""}`} onClick={() => setCardType("type6")}>Tipo 6</button>
           </div>
           <div className="field">
-            <label>Alemán</label>
+            <label>{L.name}</label>
             <input value={german} onChange={e => setGerman(e.target.value)} />
           </div>
           <div className="field">
@@ -2947,7 +2998,7 @@ function EditModal({ card, onSave, onClose }) {
           {cardType === "type2" && (
             <>
               <div className="field">
-                <label>Ejemplo en alemán</label>
+                <label>{L.exLabel}</label>
                 <input value={example} onChange={e => setExample(e.target.value)} />
               </div>
               <div className="field">
@@ -2997,7 +3048,7 @@ function ListItemThumb({ card, onClick }) {
   );
 }
 
-function ListView({ cards, onDelete, onDeleteAll, onEdit }) {
+function ListView({ cards, onDelete, onDeleteAll, onEdit, language }) {
   const [confirming, setConfirming] = useState(false);
 
   const handleExport = () => {
@@ -3090,7 +3141,7 @@ function ListView({ cards, onDelete, onDeleteAll, onEdit }) {
       )}
 
       {editingCard && (
-        <EditModal card={editingCard} onSave={c => { onEdit(c); setEditingCard(null); showToast(`✓ "${c.german}" actualizado`); }} onClose={() => setEditingCard(null)} />
+        <EditModal card={editingCard} language={language} onSave={c => { onEdit(c); setEditingCard(null); showToast(`✓ "${c.german}" actualizado`); }} onClose={() => setEditingCard(null)} />
       )}
 
       {previewCard && (
@@ -3258,6 +3309,9 @@ export default function App() {
   const [loaded, setLoaded] = useState(false); // true only after this user's cards are fetched
   const [view, setView] = useState("study");
   const [menuOpen, setMenuOpen] = useState(false);
+
+  // Keep the speech-synthesis language in sync with the user's language.
+  useEffect(() => { setSpeechLang(language); }, [language]);
 
   // Restore session on mount: verify the stored token, if any.
   // Await BOTH /auth/me and the cards before any setState, so there is never a
@@ -3484,9 +3538,9 @@ export default function App() {
           )}
         </header>
 
-        {view === "study" && <StudyView cards={cards} onGrade={gradeCard} onUpdateCards={setCards} />}
-        {view === "add" && <AddView onAdd={card => { addCard(card); setView("study"); }} onBulkAdd={(items, replace) => { bulkAddCards(items, replace); setView("list"); }} />}
-        {view === "list" && <ListView cards={cards} onDelete={deleteCard} onDeleteAll={deleteAllCards} onEdit={editCard} />}
+        {view === "study" && <StudyView cards={cards} onGrade={gradeCard} onUpdateCards={setCards} language={language} />}
+        {view === "add" && <AddView onAdd={card => { addCard(card); setView("study"); }} onBulkAdd={(items, replace) => { bulkAddCards(items, replace); setView("list"); }} language={language} />}
+        {view === "list" && <ListView cards={cards} onDelete={deleteCard} onDeleteAll={deleteAllCards} onEdit={editCard} language={language} />}
         {view === "stats" && <StatsView cards={cards} />}
       </div>
     </>

@@ -209,8 +209,9 @@ app.post("/explain", requireAuth, async (req, res) => {
   const apiKey = process.env.ANTHROPIC_API_KEY;
   if (!apiKey) return res.status(500).json({ error: "ANTHROPIC_API_KEY no configurada." });
 
-  const prompt = `Eres un tutor de alemán. Explica esta tarjeta de forma concisa y útil.
-Palabra/frase alemana: "${german}"
+  const langName = { de: "alemán", fr: "francés" }[req.user.language] || "alemán";
+  const prompt = `Eres un tutor de ${langName}. Explica esta tarjeta de forma concisa y útil.
+Palabra/frase en ${langName}: "${german}"
 Traducción: "${translation}"
 ${note ? `Nota del estudiante: "${note}"` : ""}
 
