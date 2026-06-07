@@ -40,6 +40,20 @@ const LANG_LABELS = {
 let speechLang = "de";
 function setSpeechLang(code) { if (SPEECH_LANG[code]) speechLang = code; }
 
+// Card-type options for the add/edit forms: short descriptive name + a tooltip
+// explaining how each works. Tips adapt to the user's target language.
+function getCardTypeOptions(language) {
+  const L = LANG_LABELS[language] || LANG_LABELS.de;
+  const articleHint = (ARTICLES[language] || ARTICLES.de).join(" / ");
+  return [
+    { id: "type1", name: "Imagen",    tip: "Muestra una imagen; la tocas para voltear y ver la palabra. Requiere una URL de imagen." },
+    { id: "type2", name: "Ejemplo",   tip: "Muestra la palabra con una frase de ejemplo; volteas para ver la traducción." },
+    { id: "type4", name: "Traducir",  tip: `Te muestra el español y escribes la palabra en ${L.name.toLowerCase()}; corrige tu respuesta.` },
+    { id: "type5", name: "Completar", tip: "Una frase con un hueco (___); escribes la palabra que falta." },
+    { id: "type6", name: "Artículo",  tip: `Eliges el artículo/género correcto (${articleHint}).` },
+  ];
+}
+
 // Split a word like "der Hund" / "le chien" / "l'eau" into its leading article
 // and the bare noun, picking the article set for the given language.
 function parseArticle(word, language = "de") {
@@ -2521,14 +2535,7 @@ function StudyView({ cards, onGrade, language }) {
 
 function AddView({ onAdd, onBulkAdd, language }) {
   const L = LANG_LABELS[language] || LANG_LABELS.de;
-  const articleHint = (ARTICLES[language] || ARTICLES.de).join(" / ");
-  const cardTypeOptions = [
-    { id: "type1", name: "Imagen",    tip: "Muestra una imagen; la tocas para voltear y ver la palabra. Requiere una URL de imagen." },
-    { id: "type2", name: "Ejemplo",   tip: `Muestra la palabra con una frase de ejemplo; volteas para ver la traducción.` },
-    { id: "type4", name: "Traducir",  tip: `Te muestra el español y escribes la palabra en ${L.name.toLowerCase()}; corrige tu respuesta.` },
-    { id: "type5", name: "Completar", tip: "Una frase con un hueco (___); escribes la palabra que falta." },
-    { id: "type6", name: "Artículo",  tip: `Eliges el artículo/género correcto (${articleHint}).` },
-  ];
+  const cardTypeOptions = getCardTypeOptions(language);
   const [tab, setTab] = useState("single");
 
   const [cardType, setCardType] = useState("type1");
@@ -3008,6 +3015,7 @@ function CardPreviewModal({ card, onClose }) {
 
 function EditModal({ card, onSave, onClose, language }) {
   const L = LANG_LABELS[language] || LANG_LABELS.de;
+  const cardTypeOptions = getCardTypeOptions(language);
   const [cardType, setCardType] = useState(card.cardType || "type1");
   const [german, setGerman] = useState(card.german);
   const [translation, setTranslation] = useState(card.translation);
@@ -3038,11 +3046,19 @@ function EditModal({ card, onSave, onClose, language }) {
         <div className="confirm-title">Editar tarjeta</div>
         <div className="edit-fields">
           <div className="type-selector" style={{flexWrap:"wrap"}}>
-            <button className={`type-btn ${cardType === "type1" ? "active" : ""}`} onClick={() => setCardType("type1")}>Tipo 1</button>
-            <button className={`type-btn ${cardType === "type2" ? "active" : ""}`} onClick={() => setCardType("type2")}>Tipo 2</button>
-            <button className={`type-btn ${cardType === "type4" ? "active" : ""}`} onClick={() => setCardType("type4")}>Tipo 4</button>
-            <button className={`type-btn ${cardType === "type5" ? "active" : ""}`} onClick={() => setCardType("type5")}>Tipo 5</button>
-            <button className={`type-btn ${cardType === "type6" ? "active" : ""}`} onClick={() => setCardType("type6")}>Tipo 6</button>
+            {cardTypeOptions.map(opt => (
+              <button
+                key={opt.id}
+                className={`type-btn ${cardType === opt.id ? "active" : ""}`}
+                onClick={() => setCardType(opt.id)}
+              >
+                {opt.name}
+                <span className="type-tip" role="tooltip">{opt.tip}</span>
+              </button>
+            ))}
+          </div>
+          <div className="type-tip-static">
+            {cardTypeOptions.find(o => o.id === cardType)?.tip}
           </div>
           <div className="field">
             <label>{L.name}</label>
