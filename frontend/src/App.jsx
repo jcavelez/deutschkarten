@@ -91,6 +91,19 @@ function speak(text) {
   window.speechSynthesis.speak(utt);
 }
 
+// Pronounce a card: play its attached audio file if it has one, otherwise fall
+// back to synthesized speech of the word.
+function playCard(card) {
+  if (!card) return;
+  if (card.audioUrl) {
+    window.speechSynthesis?.cancel();
+    const audio = new Audio(mediaUrl(card.audioUrl));
+    audio.play().catch(() => speak(card.german));
+    return;
+  }
+  speak(card.german);
+}
+
 // ── SM-2 Algorithm ──────────────────────────────────────────────────────────
 function sm2(card, grade) {
   let { repetitions, easiness, interval } = card;
@@ -2132,7 +2145,7 @@ function CardType2Back({ card }) {
         <button
           className="audio-replay-btn"
           style={{marginTop:"0.5rem"}}
-          onClick={e => { e.stopPropagation(); speak(card.german); }}
+          onClick={e => { e.stopPropagation(); playCard(card); }}
           title="Pronunciar"
         >▶</button>
         {card.exampleTranslation && (
@@ -2208,7 +2221,7 @@ function AnswerZoneType4({ card, language, onGrade, onExplain, explaining, expla
 
   const reveal = () => {
     setResult("revealed");
-    speak(card.german);
+    playCard(card);
   };
 
   return (
@@ -2229,20 +2242,20 @@ function AnswerZoneType4({ card, language, onGrade, onExplain, explaining, expla
       {result === "correct" && (
         <div className="answer-feedback correct" style={{display:"flex",alignItems:"center",gap:"0.5rem"}}>
           <span>✓ ¡Correcto!</span>
-          <button className="audio-replay-btn" style={{width:"28px",height:"28px",fontSize:"0.8rem"}} onClick={() => speak(card.german)}>▶</button>
+          <button className="audio-replay-btn" style={{width:"28px",height:"28px",fontSize:"0.8rem"}} onClick={() => playCard(card)}>▶</button>
         </div>
       )}
       {result === "wrong" && (
         <div className="answer-feedback wrong" style={{display:"flex",alignItems:"center",gap:"0.5rem"}}>
           <span>✗ La respuesta es: <strong>{card.german}</strong></span>
-          <button className="audio-replay-btn" style={{width:"28px",height:"28px",fontSize:"0.8rem",flexShrink:0}} onClick={() => speak(card.german)}>▶</button>
+          <button className="audio-replay-btn" style={{width:"28px",height:"28px",fontSize:"0.8rem",flexShrink:0}} onClick={() => playCard(card)}>▶</button>
         </div>
       )}
       {result === "revealed" && (
         <div className="answer-feedback wrong" style={{display:"flex",flexDirection:"column",gap:"0.75rem"}}>
           <div style={{display:"flex",alignItems:"center",gap:"0.5rem"}}>
             <span>👁 La respuesta es: <strong>{card.german}</strong></span>
-            <button className="audio-replay-btn" style={{width:"28px",height:"28px",fontSize:"0.8rem",flexShrink:0}} onClick={() => speak(card.german)}>▶</button>
+            <button className="audio-replay-btn" style={{width:"28px",height:"28px",fontSize:"0.8rem",flexShrink:0}} onClick={() => playCard(card)}>▶</button>
           </div>
           <button className="continuar-btn" onClick={() => onGrade(0)}>Continuar</button>
         </div>
@@ -2286,7 +2299,7 @@ function AnswerZoneType5({ card, onGrade, onExplain, explaining, explanation }) 
 
   const reveal = () => {
     setResult("revealed");
-    speak(card.german);
+    playCard(card);
   };
 
   return (
@@ -2307,20 +2320,20 @@ function AnswerZoneType5({ card, onGrade, onExplain, explaining, explanation }) 
       {result === "correct" && (
         <div className="answer-feedback correct" style={{display:"flex",alignItems:"center",gap:"0.5rem"}}>
           <span style={{minWidth:0}}>✓ ¡Correcto! — {fullSentence}</span>
-          <button className="audio-replay-btn" style={{width:"28px",height:"28px",fontSize:"0.8rem",flexShrink:0}} onClick={() => speak(card.german)}>▶</button>
+          <button className="audio-replay-btn" style={{width:"28px",height:"28px",fontSize:"0.8rem",flexShrink:0}} onClick={() => playCard(card)}>▶</button>
         </div>
       )}
       {result === "wrong" && (
         <div className="answer-feedback wrong" style={{display:"flex",alignItems:"center",gap:"0.5rem"}}>
           <span style={{minWidth:0}}>✗ Era: <strong>{card.german}</strong> — {fullSentence}</span>
-          <button className="audio-replay-btn" style={{width:"28px",height:"28px",fontSize:"0.8rem",flexShrink:0}} onClick={() => speak(card.german)}>▶</button>
+          <button className="audio-replay-btn" style={{width:"28px",height:"28px",fontSize:"0.8rem",flexShrink:0}} onClick={() => playCard(card)}>▶</button>
         </div>
       )}
       {result === "revealed" && (
         <div className="answer-feedback wrong" style={{display:"flex",flexDirection:"column",gap:"0.75rem"}}>
           <div style={{display:"flex",alignItems:"center",gap:"0.5rem"}}>
             <span style={{minWidth:0}}>👁 <strong>{card.german}</strong> — {fullSentence}</span>
-            <button className="audio-replay-btn" style={{width:"28px",height:"28px",fontSize:"0.8rem",flexShrink:0}} onClick={() => speak(card.german)}>▶</button>
+            <button className="audio-replay-btn" style={{width:"28px",height:"28px",fontSize:"0.8rem",flexShrink:0}} onClick={() => playCard(card)}>▶</button>
           </div>
           <button className="continuar-btn" onClick={() => onGrade(0)}>Continuar</button>
         </div>
@@ -2381,8 +2394,9 @@ function AnswerZoneType6({ card, language, onGrade, onExplain, explaining, expla
         <div className={`answer-feedback ${picked === correct ? "correct" : "wrong"}`} style={{display:"flex",flexDirection:"column",gap:"0.75rem"}}>
           <div style={{display:"flex",alignItems:"center",gap:"0.5rem"}}>
             <span style={{minWidth:0}}>{picked === correct ? `✓ Correcto — ${card.german}` : `✗ Es ${correct} — ${card.german}`}</span>
-            <button className="audio-replay-btn" style={{width:"28px",height:"28px",fontSize:"0.8rem",flexShrink:0}} onClick={() => speak(card.german)}>▶</button>
+            <button className="audio-replay-btn" style={{width:"28px",height:"28px",fontSize:"0.8rem",flexShrink:0}} onClick={() => playCard(card)}>▶</button>
           </div>
+          {card.note && <div className="card-note">{card.note}</div>}
           <button className="continuar-btn" onClick={() => onGrade(picked === correct ? 5 : 1)}>Continuar</button>
         </div>
       )}
@@ -2418,15 +2432,12 @@ function StudyView({ cards, onGrade, language }) {
 
   const card = due[0];
 
-  const speakCurrent = React.useCallback((german) => {
-    if (german) speak(german);
-  }, []);
+  const playCurrent = React.useCallback(() => { playCard(card); }, [card]);
 
-  // Auto-speak on flip for type1 and type2
+  // Auto-play on flip for type1 and type2
   React.useEffect(() => {
     if (flipped && (card?.cardType === "type1" || card?.cardType === "type2")) {
-      const g = card.german;
-      const t = setTimeout(() => speakCurrent(g), 350);
+      const t = setTimeout(() => playCard(card), 350);
       return () => clearTimeout(t);
     }
   }, [flipped]);
@@ -2495,7 +2506,7 @@ function StudyView({ cards, onGrade, language }) {
               {cardType === "type2" && <CardType2Front card={card} />}
             </div>
             <div className="card-face back">
-              {cardType === "type1" && <CardType1Back card={card} onSpeak={speakCurrent} />}
+              {cardType === "type1" && <CardType1Back card={card} onSpeak={playCurrent} />}
               {cardType === "type2" && <CardType2Back card={card} />}
             </div>
           </div>
@@ -2671,12 +2682,15 @@ function AddView({ onAdd, onBulkAdd, language }) {
                 <label>{cardType === "type5" ? 'Oración con ___ (espacio en blanco)' : L.exLabel}</label>
                 <input value={example} onChange={e => setExample(e.target.value)} placeholder={cardType === "type5" ? L.blankPh : L.exPh} />
               </div>
-              <div className="field">
-                <label>Traducción del ejemplo</label>
-                <input value={exampleTranslation} onChange={e => setExampleTranslation(e.target.value)} placeholder="El perro corre rápido." />
-              </div>
+              {cardType === "type2" && (
+                <div className="field">
+                  <label>Traducción del ejemplo</label>
+                  <input value={exampleTranslation} onChange={e => setExampleTranslation(e.target.value)} placeholder="El perro corre rápido." />
+                </div>
+              )}
             </>
           )}
+          {["type1", "type5", "type6"].includes(cardType) && (
           <div className="field">
             <label>
               Imagen (opcional) —{" "}
@@ -2712,6 +2726,7 @@ function AddView({ onAdd, onBulkAdd, language }) {
               </div>
             )}
           </div>
+          )}
 
           <div className="field">
             <label>
@@ -3082,22 +3097,26 @@ function EditModal({ card, onSave, onClose, language }) {
             <label>Nota</label>
             <input value={note} onChange={e => setNote(e.target.value)} placeholder="artículo, truco…" />
           </div>
-          {cardType === "type2" && (
+          {(cardType === "type2" || cardType === "type5") && (
             <>
               <div className="field">
-                <label>{L.exLabel}</label>
-                <input value={example} onChange={e => setExample(e.target.value)} />
+                <label>{cardType === "type5" ? 'Oración con ___ (espacio en blanco)' : L.exLabel}</label>
+                <input value={example} onChange={e => setExample(e.target.value)} placeholder={cardType === "type5" ? L.blankPh : L.exPh} />
               </div>
-              <div className="field">
-                <label>Traducción del ejemplo</label>
-                <input value={exampleTranslation} onChange={e => setExampleTranslation(e.target.value)} />
-              </div>
+              {cardType === "type2" && (
+                <div className="field">
+                  <label>Traducción del ejemplo</label>
+                  <input value={exampleTranslation} onChange={e => setExampleTranslation(e.target.value)} />
+                </div>
+              )}
             </>
           )}
-          <div className="field">
-            <label>URL imagen</label>
-            <input value={imageUrl} onChange={e => setImageUrl(e.target.value)} placeholder="https://…" />
-          </div>
+          {["type1", "type5", "type6"].includes(cardType) && (
+            <div className="field">
+              <label>URL imagen</label>
+              <input value={imageUrl} onChange={e => setImageUrl(e.target.value)} placeholder="https://…" />
+            </div>
+          )}
           <div className="field">
             <label>URL audio</label>
             <input value={audioUrl} onChange={e => setAudioUrl(e.target.value)} placeholder="https://…" />
