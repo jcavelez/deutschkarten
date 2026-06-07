@@ -2084,7 +2084,7 @@ function AnswerZoneType4({ card, onGrade, onExplain, explaining, explanation }) 
 
   const check = () => {
     if (!value.trim()) return;
-    const isCorrect = value.trim() === card.german;
+    const isCorrect = value.trim().toLowerCase() === card.german.trim().toLowerCase();
     setResult(isCorrect ? "correct" : "wrong");
   };
 
@@ -2162,7 +2162,7 @@ function AnswerZoneType5({ card, onGrade, onExplain, explaining, explanation }) 
 
   const check = () => {
     if (!value.trim()) return;
-    const isCorrect = value.trim() === card.german;
+    const isCorrect = value.trim().toLowerCase() === card.german.trim().toLowerCase();
     setResult(isCorrect ? "correct" : "wrong");
   };
 

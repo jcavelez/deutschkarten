@@ -83,7 +83,7 @@ app.post("/auth/login", async (req, res) => {
     return res.status(400).json({ error: "Usuario y contraseña requeridos." });
   try {
     const result = await pool.query(
-      "SELECT id, username, password_hash, language FROM users WHERE username = $1",
+      "SELECT id, username, password_hash, language FROM users WHERE LOWER(username) = LOWER($1)",
       [username.trim()]
     );
     const user = result.rows[0];
