@@ -40,18 +40,28 @@ const LANG_LABELS = {
 let speechLang = "de";
 function setSpeechLang(code) { if (SPEECH_LANG[code]) speechLang = code; }
 
+// Short descriptive name per card type, shown on form buttons and study badges.
+const CARD_TYPE_NAMES = {
+  type1: "Imagen",
+  type2: "Ejemplo",
+  type4: "Traducir",
+  type5: "Completar",
+  type6: "Artículo",
+};
+
 // Card-type options for the add/edit forms: short descriptive name + a tooltip
 // explaining how each works. Tips adapt to the user's target language.
 function getCardTypeOptions(language) {
   const L = LANG_LABELS[language] || LANG_LABELS.de;
   const articleHint = (ARTICLES[language] || ARTICLES.de).join(" / ");
-  return [
-    { id: "type1", name: "Imagen",    tip: "Muestra una imagen; la tocas para voltear y ver la palabra. Requiere una URL de imagen." },
-    { id: "type2", name: "Ejemplo",   tip: "Muestra la palabra con una frase de ejemplo; volteas para ver la traducción." },
-    { id: "type4", name: "Traducir",  tip: `Te muestra el español y escribes la palabra en ${L.name.toLowerCase()}; corrige tu respuesta.` },
-    { id: "type5", name: "Completar", tip: "Una frase con un hueco (___); escribes la palabra que falta." },
-    { id: "type6", name: "Artículo",  tip: `Eliges el artículo/género correcto (${articleHint}).` },
-  ];
+  const tips = {
+    type1: "Muestra una imagen; la tocas para voltear y ver la palabra. Requiere una URL de imagen.",
+    type2: "Muestra la palabra con una frase de ejemplo; volteas para ver la traducción.",
+    type4: `Te muestra el español y escribes la palabra en ${L.name.toLowerCase()}; corrige tu respuesta.`,
+    type5: "Una frase con un hueco (___); escribes la palabra que falta.",
+    type6: `Eliges el artículo/género correcto (${articleHint}).`,
+  };
+  return Object.keys(CARD_TYPE_NAMES).map(id => ({ id, name: CARD_TYPE_NAMES[id], tip: tips[id] }));
 }
 
 // Split a word like "der Hund" / "le chien" / "l'eau" into its leading article
@@ -2057,7 +2067,7 @@ const GRADES = [
 function CardType1Front({ card }) {
   return (
     <div className="t1-front">
-      <div className="card-type-badge">Tipo 1</div>
+      <div className="card-type-badge">{CARD_TYPE_NAMES.type1}</div>
       {card.imageUrl
         ? <img className="t1-front-img" src={mediaUrl(card.imageUrl)} alt="" />
         : <div style={{fontSize:"0.75rem",color:"#444",border:"1px dashed #333",padding:"1.5rem 2rem",borderRadius:"4px"}}>sin imagen</div>
@@ -2070,7 +2080,7 @@ function CardType1Front({ card }) {
 function CardType1Back({ card, onSpeak }) {
   return (
     <>
-      <div className="card-type-badge">Tipo 1</div>
+      <div className="card-type-badge">{CARD_TYPE_NAMES.type1}</div>
       <div className="card-hint">califica abajo</div>
       <div className="t1-back-word">{card.german}</div>
       {card.note && <div className="t1-back-note">{card.note}</div>}
@@ -2096,7 +2106,7 @@ function CardType2Front({ card }) {
   };
   return (
     <>
-      <div className="card-type-badge">Tipo 2</div>
+      <div className="card-type-badge">{CARD_TYPE_NAMES.type2}</div>
       <div className="card-hint">toca para voltear</div>
       <div className="t2-front">
         <div className="t2-word">{card.german}</div>
@@ -2114,7 +2124,7 @@ function CardType2Front({ card }) {
 function CardType2Back({ card }) {
   return (
     <>
-      <div className="card-type-badge">Tipo 2</div>
+      <div className="card-type-badge">{CARD_TYPE_NAMES.type2}</div>
       <div className="card-hint">califica abajo</div>
       <div className="t2-back">
         <div className="t2-translation">{card.translation}</div>
@@ -2141,7 +2151,7 @@ function CardType4Front({ card, language }) {
   const L = LANG_LABELS[language] || LANG_LABELS.de;
   return (
     <div className="t4-front">
-      <div className="card-type-badge">Tipo 4</div>
+      <div className="card-type-badge">{CARD_TYPE_NAMES.type4}</div>
       <div className="t4-label">¿Cómo se dice en {L.name.toLowerCase()}?</div>
       <div className="t4-word">{card.translation}</div>
       {card.note && <div className="t4-note">{card.note}</div>}
@@ -2154,7 +2164,7 @@ function CardType5Front({ card }) {
   const parts = sentence.split("___");
   return (
     <div className="t5-front">
-      <div className="card-type-badge">Tipo 5</div>
+      <div className="card-type-badge">{CARD_TYPE_NAMES.type5}</div>
       {card.imageUrl && <img className="t1-front-img" src={mediaUrl(card.imageUrl)} alt="" style={{position:"relative",inset:"auto",width:"auto",height:"45%",maxWidth:"80%",marginBottom:"0.25rem"}} />}
       <div className="t5-sentence">
         {parts.map((part, i) => (
@@ -2173,7 +2183,7 @@ function CardType6Front({ card, language }) {
   const { bare } = parseArticle(card.german, language);
   return (
     <div className="t6-front">
-      <div className="card-type-badge">Tipo 6</div>
+      <div className="card-type-badge">{CARD_TYPE_NAMES.type6}</div>
       {card.imageUrl && <img className="t1-front-img" src={mediaUrl(card.imageUrl)} alt="" style={{position:"relative",inset:"auto",width:"auto",height:"50%",maxWidth:"80%",marginBottom:"0.5rem"}} />}
       <div className="t6-label">¿Cuál es el artículo?</div>
       <div className="t6-word">___ {bare}</div>
