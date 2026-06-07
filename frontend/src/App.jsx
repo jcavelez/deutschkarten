@@ -10,6 +10,30 @@ function mediaUrl(url) {
 // BCP-47 tags for speech synthesis, keyed by the app's language code.
 const SPEECH_LANG = { de: "de-DE", fr: "fr-FR" };
 
+// Voices load asynchronously; the first getVoices() call is often empty, which
+// would leave us with the browser's default voice (wrong accent). Cache them and
+// refresh when the browser fires voiceschanged.
+let cachedVoices = [];
+function refreshVoices() {
+  if (window.speechSynthesis) cachedVoices = window.speechSynthesis.getVoices() || [];
+}
+if (typeof window !== "undefined" && window.speechSynthesis) {
+  refreshVoices();
+  window.speechSynthesis.addEventListener?.("voiceschanged", refreshVoices);
+}
+
+// Pick the best installed voice for a BCP-47 code: exact match first, then any
+// voice in the same language (e.g. fr-CA for fr-FR).
+function pickVoice(code) {
+  const voices = cachedVoices.length ? cachedVoices : (window.speechSynthesis?.getVoices() || []);
+  const want = code.toLowerCase();
+  const prefix = want.slice(0, 2);
+  const norm = v => v.lang.replace("_", "-").toLowerCase();
+  return voices.find(v => norm(v) === want)
+      || voices.find(v => norm(v).startsWith(prefix))
+      || null;
+}
+
 // Definite articles shown on Type 6 (article) cards, by language. French keeps
 // the elided "l'" so vowel-initial nouns still get a valid choice.
 const ARTICLES = { de: ["der", "die", "das"], fr: ["le", "la", "l'"] };
@@ -87,8 +111,7 @@ function speak(text) {
   utt.lang = code;
   utt.rate = 0.9;
   // Prefer a voice matching the active language if available
-  const voices = window.speechSynthesis.getVoices();
-  const voice = voices.find(v => v.lang.startsWith(code.slice(0, 2)));
+  const voice = pickVoice(code);
   if (voice) utt.voice = voice;
   window.speechSynthesis.speak(utt);
 }
