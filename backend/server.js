@@ -50,6 +50,14 @@ async function initDb() {
       created_at          TIMESTAMPTZ NOT NULL DEFAULT NOW(),
       PRIMARY KEY (id, user_id)
     );
+
+    CREATE TABLE IF NOT EXISTS study_stats (
+      user_id        INTEGER PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+      day            TEXT,                          -- last active local day 'YYYY-MM-DD'
+      today_count    INTEGER NOT NULL DEFAULT 0,    -- reviews done on that day
+      current_streak INTEGER NOT NULL DEFAULT 0,
+      longest_streak INTEGER NOT NULL DEFAULT 0
+    );
   `);
   console.log("DB schema ready");
 }
@@ -159,6 +167,44 @@ app.put("/cards", requireAuth, async (req, res) => {
     res.status(500).json({ error: "Error al guardar tarjetas." });
   } finally {
     client.release();
+  }
+});
+
+// ── Study stats (streak + per-day count) ──────────────────────────────────────
+// Client-authoritative, like cards: the frontend computes the values (it knows
+// the user's local day) and we just persist them.
+app.get("/stats", requireAuth, async (req, res) => {
+  try {
+    const result = await pool.query(
+      `SELECT day, today_count AS "todayCount",
+              current_streak AS "currentStreak", longest_streak AS "longestStreak"
+       FROM study_stats WHERE user_id = $1`,
+      [req.user.id]
+    );
+    res.json(result.rows[0] || { day: null, todayCount: 0, currentStreak: 0, longestStreak: 0 });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Error al cargar estadísticas." });
+  }
+});
+
+app.put("/stats", requireAuth, async (req, res) => {
+  const { day, todayCount, currentStreak, longestStreak } = req.body || {};
+  try {
+    await pool.query(
+      `INSERT INTO study_stats (user_id, day, today_count, current_streak, longest_streak)
+       VALUES ($1, $2, $3, $4, $5)
+       ON CONFLICT (user_id) DO UPDATE SET
+         day = EXCLUDED.day,
+         today_count = EXCLUDED.today_count,
+         current_streak = EXCLUDED.current_streak,
+         longest_streak = EXCLUDED.longest_streak`,
+      [req.user.id, day || null, todayCount ?? 0, currentStreak ?? 0, longestStreak ?? 0]
+    );
+    res.json({ ok: true });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Error al guardar estadísticas." });
   }
 });
 

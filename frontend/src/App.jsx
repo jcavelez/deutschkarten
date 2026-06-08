@@ -188,6 +188,45 @@ async function saveCards(cards) {
   return apiFetch(`/cards${qs}`, { method: "PUT", body: JSON.stringify(cards) });
 }
 
+async function loadStats() {
+  return apiFetch("/stats");
+}
+
+async function saveStats(stats) {
+  return apiFetch("/stats", { method: "PUT", body: JSON.stringify(stats) });
+}
+
+// ── Streak / daily-count helpers ──────────────────────────────────────────────
+// Local "YYYY-MM-DD" so the day boundary follows the user's timezone.
+function localDateStr(d = new Date()) {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
+function dayDiff(from, to) {
+  return Math.round((new Date(to + "T00:00:00") - new Date(from + "T00:00:00")) / 86400000);
+}
+// Register one review "now", updating today's count and the consecutive-day streak.
+function bumpStats(prev) {
+  const today = localDateStr();
+  if (!prev || !prev.day) {
+    return { day: today, todayCount: 1, currentStreak: 1, longestStreak: 1 };
+  }
+  if (prev.day === today) {
+    return { ...prev, todayCount: prev.todayCount + 1 };
+  }
+  const diff = dayDiff(prev.day, today);
+  if (diff <= 0) {
+    // Clock moved backwards — treat as the same day, don't rewind the streak.
+    return { ...prev, todayCount: prev.todayCount + 1 };
+  }
+  const currentStreak = diff === 1 ? prev.currentStreak + 1 : 1;
+  return {
+    day: today,
+    todayCount: 1,
+    currentStreak,
+    longestStreak: Math.max(prev.longestStreak || 0, currentStreak),
+  };
+}
+
 // ── AI Explanation ──────────────────────────────────────────────
 async function fetchExplanation(card) {
   return apiFetch("/explain", {
@@ -693,8 +732,18 @@ const css = `
     margin-bottom: 0.5rem;
   }
   .celebrate-text { color: var(--text-2); font-size: 0.9rem; margin-bottom: 0.35rem; }
-  .celebrate-count { color: var(--text-dim); font-size: 0.8rem; margin-bottom: 1.5rem; }
+  .celebrate-count { color: var(--text-dim); font-size: 0.8rem; margin-bottom: 0.4rem; }
   .celebrate-count strong { color: var(--accent); }
+  .celebrate-streak {
+    display: inline-block;
+    margin: 0 auto 1.5rem;
+    padding: 0.3rem 0.8rem;
+    background: var(--accent-soft);
+    border-radius: 999px;
+    color: var(--text-2);
+    font-size: 0.8rem;
+  }
+  .celebrate-streak strong { color: var(--danger); }
   .celebrate-btn {
     background: var(--danger); box-shadow: var(--shadow-pop);
     border: none; border-radius: 8px; color: #FFFFFF;
@@ -717,6 +766,24 @@ const css = `
     0%   { transform: translateY(-12vh) rotate(0deg); opacity: 1; }
     100% { transform: translateY(105vh) rotate(560deg); opacity: 0.9; }
   }
+
+  /* ── Racha (vista Estado) ── */
+  .streak-banner {
+    display: flex; align-items: center; justify-content: space-between;
+    gap: 1rem; flex-wrap: wrap;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    box-shadow: var(--shadow-soft);
+    padding: 1rem 1.25rem;
+    margin-bottom: 1.5rem;
+  }
+  .streak-main { display: flex; align-items: baseline; gap: 0.5rem; }
+  .streak-flame { font-size: 1.5rem; }
+  .streak-num { font-family: 'Playfair Display', serif; font-size: 2rem; font-weight: 700; color: var(--danger); line-height: 1; }
+  .streak-unit { color: var(--text-2); font-size: 0.8rem; }
+  .streak-sub { display: flex; gap: 1.25rem; font-size: 0.75rem; color: var(--text-dim); }
+  .streak-sub strong { color: var(--text); }
 
   .success-msg {
     margin-top: 1rem;
@@ -2576,7 +2643,7 @@ function AnswerZoneType6({ card, language, onGrade, onExplain, explaining, expla
 // ── Celebration ────────────────────────────────────────────────────────────
 const CONFETTI_COLORS = ["#C8825B", "#B23B2E", "#5A7A4E", "#E0A458", "#8A6FA6"];
 
-function Celebration({ count, onClose }) {
+function Celebration({ count, streak, onClose }) {
   const pieces = React.useMemo(() =>
     Array.from({ length: 20 }, (_, i) => ({
       left: Math.random() * 100,
@@ -2604,8 +2671,13 @@ function Celebration({ count, onClose }) {
         <h2 className="celebrate-title">¡Felicitaciones!</h2>
         <p className="celebrate-text">Terminaste tus repasos del día.</p>
         <p className="celebrate-count">
-          Repasaste <strong>{count}</strong> {count === 1 ? "tarjeta" : "tarjetas"} en esta sesión.
+          Repasaste <strong>{count}</strong> {count === 1 ? "tarjeta" : "tarjetas"} hoy.
         </p>
+        {streak > 0 && (
+          <p className="celebrate-streak">
+            🔥 Racha: <strong>{streak}</strong> {streak === 1 ? "día" : "días"} seguidos
+          </p>
+        )}
         <button className="celebrate-btn" onClick={onClose}>Continuar</button>
       </div>
     </div>
@@ -2613,7 +2685,7 @@ function Celebration({ count, onClose }) {
 }
 
 // ── Components ───────────────────────────────────────────────────────────────
-function StudyView({ cards, onGrade, language }) {
+function StudyView({ cards, onGrade, language, stats }) {
   const [flipped, setFlipped] = useState(false);
   const [explaining, setExplaining] = useState(false);
   const [explanation, setExplanation] = useState(null);
@@ -2692,7 +2764,7 @@ function StudyView({ cards, onGrade, language }) {
       <div className="deck-empty">
         <p>Sin repasos pendientes.<br />Vuelve mañana — el sistema hace el resto.</p>
       </div>
-      {celebrate && <Celebration count={reviewed} onClose={() => setCelebrate(false)} />}
+      {celebrate && <Celebration count={stats?.todayCount ?? reviewed} streak={stats?.currentStreak ?? 0} onClose={() => setCelebrate(false)} />}
     </>
   );
 
@@ -3009,9 +3081,17 @@ function AddView({ onAdd, onBulkAdd, language }) {
 
 
 // ── Stats View ────────────────────────────────────────────────────────────────
-function StatsView({ cards }) {
+function StatsView({ cards, stats }) {
   const now = Date.now();
   const DAY = 86400000;
+
+  // Streak/daily figures (a streak is "alive" only if last active day is today
+  // or yesterday; today's count only applies if `day` is actually today).
+  const todayStr = localDateStr();
+  const todayCount = stats && stats.day === todayStr ? stats.todayCount : 0;
+  const streakAlive = stats && stats.day && dayDiff(stats.day, todayStr) <= 1;
+  const currentStreak = streakAlive ? stats.currentStreak : 0;
+  const longestStreak = stats?.longestStreak ?? 0;
 
   const buckets = [
     { label: "Nuevas",   color: "#B4642F", count: 0 },
@@ -3047,6 +3127,18 @@ function StatsView({ cards }) {
       <div className="stats-header">
         <div className="stats-title">Estado del mazo</div>
         <div className="stats-total">{total} tarjeta{total !== 1 ? "s" : ""} en total</div>
+      </div>
+
+      <div className="streak-banner">
+        <div className="streak-main">
+          <span className="streak-flame">🔥</span>
+          <span className="streak-num">{currentStreak}</span>
+          <span className="streak-unit">{currentStreak === 1 ? "día" : "días"} de racha</span>
+        </div>
+        <div className="streak-sub">
+          <span>Hoy: <strong>{todayCount}</strong></span>
+          <span>Récord: <strong>{longestStreak}</strong></span>
+        </div>
       </div>
 
       <div className="stats-chart">
@@ -3572,6 +3664,7 @@ export default function App() {
   const [user, setUser] = useState(null);
   const [language, setLanguage] = useState("de");
   const [cards, setCards] = useState([]);
+  const [stats, setStats] = useState(null);    // { day, todayCount, currentStreak, longestStreak }
   const [loaded, setLoaded] = useState(false); // true only after this user's cards are fetched
   const [view, setView] = useState("study");
   const [menuOpen, setMenuOpen] = useState(false);
@@ -3588,9 +3681,11 @@ export default function App() {
       try {
         const me = await apiFetch("/auth/me");
         const c = await loadCards();
+        const s = await loadStats().catch(() => null);
         setUser(me.username);
         setLanguage(me.language || "de");
         setCards(c);
+        setStats(s);
         setLoaded(true);
       } catch {
         clearToken();
@@ -3608,6 +3703,13 @@ export default function App() {
     return () => clearTimeout(t);
   }, [cards, user, loaded]);
 
+  // Persist study stats (streak/daily count) when they change.
+  useEffect(() => {
+    if (!user || !loaded || !stats) return;
+    const t = setTimeout(() => { saveStats(stats).catch(() => {}); }, 800);
+    return () => clearTimeout(t);
+  }, [stats, user, loaded]);
+
   // Refs kept current for non-React callbacks (beforeunload, logout flush)
   const cardsRef = useRef(cards);
   useEffect(() => { cardsRef.current = cards; }, [cards]);
@@ -3615,6 +3717,8 @@ export default function App() {
   useEffect(() => { userRef.current = user; }, [user]);
   const loadedRef = useRef(loaded);
   useEffect(() => { loadedRef.current = loaded; }, [loaded]);
+  const statsRef = useRef(stats);
+  useEffect(() => { statsRef.current = stats; }, [stats]);
 
   // Flush save immediately when the browser tab/window is closing
   useEffect(() => {
@@ -3628,17 +3732,29 @@ export default function App() {
         body: JSON.stringify(cards),
         keepalive: true,
       });
+      if (statsRef.current) {
+        fetch(`${API_BASE}/stats`, {
+          method: "PUT",
+          headers: { "Content-Type": "application/json", ...authHeaders() },
+          body: JSON.stringify(statsRef.current),
+          keepalive: true,
+        });
+      }
     };
     window.addEventListener("beforeunload", flush);
     return () => window.removeEventListener("beforeunload", flush);
   }, []);
 
   async function handleLogout() {
-    if (loaded) await saveCards(cards).catch(() => {});
+    if (loaded) {
+      await saveCards(cards).catch(() => {});
+      if (stats) await saveStats(stats).catch(() => {});
+    }
     clearToken();
     setLoaded(false);
     setUser(false);
     setCards([]);
+    setStats(null);
   }
 
   async function handleAuth(username, lang) {
@@ -3649,7 +3765,9 @@ export default function App() {
     setLanguage(lang || "de");
     try {
       const c = await loadCards();
+      const s = await loadStats().catch(() => null);
       setCards(c);
+      setStats(s);
       setLoaded(true);          // enable saving ONLY after a successful load
     } catch {
       setCards([]);             // show empty UI, but keep loaded=false so we never wipe
@@ -3678,6 +3796,7 @@ export default function App() {
 
   const gradeCard = useCallback((id, updates) => {
     setCards(prev => prev.map(c => c.id === id ? { ...c, ...updates } : c));
+    setStats(prev => bumpStats(prev));
   }, []);
 
   const deleteCard = useCallback((id) => {
@@ -3804,10 +3923,10 @@ export default function App() {
           )}
         </header>
 
-        {view === "study" && <StudyView cards={cards} onGrade={gradeCard} onUpdateCards={setCards} language={language} />}
+        {view === "study" && <StudyView cards={cards} onGrade={gradeCard} onUpdateCards={setCards} language={language} stats={stats} />}
         {view === "add" && <AddView onAdd={card => { addCard(card); setView("study"); }} onBulkAdd={(items, replace) => { bulkAddCards(items, replace); setView("list"); }} language={language} />}
         {view === "list" && <ListView cards={cards} onDelete={deleteCard} onDeleteAll={deleteAllCards} onEdit={editCard} language={language} />}
-        {view === "stats" && <StatsView cards={cards} />}
+        {view === "stats" && <StatsView cards={cards} stats={stats} />}
       </div>
     </>
   );
