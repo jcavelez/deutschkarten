@@ -650,6 +650,74 @@ const css = `
   .auth-btn:hover:not(:disabled) { background: var(--danger-hover); transform: translateY(-2px); box-shadow: 0 8px 20px -4px rgba(178,59,46,0.35); }
   .auth-btn:disabled { opacity: 0.6; cursor: default; }
 
+  /* ── Celebración al terminar los repasos del día ── */
+  .celebrate-overlay {
+    position: fixed; inset: 0; z-index: 200;
+    display: flex; align-items: center; justify-content: center;
+    padding: 1.5rem; overflow: hidden;
+    background: rgba(40,28,16,0.45);
+    backdrop-filter: blur(3px);
+    -webkit-backdrop-filter: blur(3px);
+    animation: celebrate-fade 0.25s ease;
+  }
+  @keyframes celebrate-fade { from { opacity: 0; } to { opacity: 1; } }
+
+  .celebrate-card {
+    position: relative; z-index: 2;
+    width: 100%; max-width: 360px;
+    text-align: center;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 18px;
+    box-shadow: var(--shadow-card);
+    padding: 2.5rem 2rem 2rem;
+    animation: celebrate-pop 0.4s cubic-bezier(.2,.9,.3,1.3);
+  }
+  @keyframes celebrate-pop {
+    from { opacity: 0; transform: scale(0.85) translateY(12px); }
+    to   { opacity: 1; transform: scale(1) translateY(0); }
+  }
+
+  .celebrate-emoji {
+    font-size: 3rem; line-height: 1; margin-bottom: 0.75rem;
+    animation: celebrate-bounce 0.6s ease 0.1s both;
+  }
+  @keyframes celebrate-bounce {
+    0% { transform: scale(0); }
+    60% { transform: scale(1.25); }
+    100% { transform: scale(1); }
+  }
+  .celebrate-title {
+    font-family: 'Playfair Display', serif; font-style: italic;
+    color: var(--accent); font-size: 1.8rem; font-weight: 700;
+    margin-bottom: 0.5rem;
+  }
+  .celebrate-text { color: var(--text-2); font-size: 0.9rem; margin-bottom: 0.35rem; }
+  .celebrate-count { color: var(--text-dim); font-size: 0.8rem; margin-bottom: 1.5rem; }
+  .celebrate-count strong { color: var(--accent); }
+  .celebrate-btn {
+    background: var(--danger); box-shadow: var(--shadow-pop);
+    border: none; border-radius: 8px; color: #FFFFFF;
+    font-family: 'DM Mono', monospace; font-size: 0.72rem;
+    letter-spacing: 0.14em; text-transform: uppercase;
+    padding: 0.8rem 2.5rem; cursor: pointer;
+    transition: background 0.16s ease, transform 0.16s ease, box-shadow 0.16s ease;
+  }
+  .celebrate-btn:hover { background: var(--danger-hover); transform: translateY(-2px); box-shadow: 0 8px 20px -4px rgba(178,59,46,0.35); }
+
+  .confetti { position: absolute; inset: 0; z-index: 1; pointer-events: none; }
+  .confetti-piece {
+    position: absolute; top: -12px; border-radius: 2px; opacity: 0.9;
+    animation-name: confetti-fall;
+    animation-timing-function: linear;
+    animation-iteration-count: 1;
+    animation-fill-mode: forwards;
+  }
+  @keyframes confetti-fall {
+    0%   { transform: translateY(-12vh) rotate(0deg); opacity: 1; }
+    100% { transform: translateY(105vh) rotate(560deg); opacity: 0.9; }
+  }
+
   .success-msg {
     margin-top: 1rem;
     font-size: 0.7rem;
@@ -2505,6 +2573,45 @@ function AnswerZoneType6({ card, language, onGrade, onExplain, explaining, expla
   );
 }
 
+// ── Celebration ────────────────────────────────────────────────────────────
+const CONFETTI_COLORS = ["#C8825B", "#B23B2E", "#5A7A4E", "#E0A458", "#8A6FA6"];
+
+function Celebration({ count, onClose }) {
+  const pieces = React.useMemo(() =>
+    Array.from({ length: 20 }, (_, i) => ({
+      left: Math.random() * 100,
+      delay: Math.random() * 0.5,
+      duration: 1.6 + Math.random() * 1.3,
+      color: CONFETTI_COLORS[i % CONFETTI_COLORS.length],
+      size: 6 + Math.random() * 6,
+    })), []);
+
+  return (
+    <div className="celebrate-overlay" onClick={onClose}>
+      <div className="confetti">
+        {pieces.map((p, i) => (
+          <span key={i} className="confetti-piece" style={{
+            left: `${p.left}%`,
+            background: p.color,
+            width: p.size, height: p.size,
+            animationDelay: `${p.delay}s`,
+            animationDuration: `${p.duration}s`,
+          }} />
+        ))}
+      </div>
+      <div className="celebrate-card" onClick={e => e.stopPropagation()}>
+        <div className="celebrate-emoji">🎉</div>
+        <h2 className="celebrate-title">¡Felicitaciones!</h2>
+        <p className="celebrate-text">Terminaste tus repasos del día.</p>
+        <p className="celebrate-count">
+          Repasaste <strong>{count}</strong> {count === 1 ? "tarjeta" : "tarjetas"} en esta sesión.
+        </p>
+        <button className="celebrate-btn" onClick={onClose}>Continuar</button>
+      </div>
+    </div>
+  );
+}
+
 // ── Components ───────────────────────────────────────────────────────────────
 function StudyView({ cards, onGrade, language }) {
   const [flipped, setFlipped] = useState(false);
@@ -2512,6 +2619,8 @@ function StudyView({ cards, onGrade, language }) {
   const [explanation, setExplanation] = useState(null);
   const [interactiveKey, setInteractiveKey] = useState(0);
   const [transitioning, setTransitioning] = useState(false);
+  const [reviewed, setReviewed] = useState(0);   // graded this session
+  const [celebrate, setCelebrate] = useState(false);
 
   // Stable shuffled due list — only recomputes when card set changes
   const due = React.useMemo(() => {
@@ -2539,24 +2648,29 @@ function StudyView({ cards, onGrade, language }) {
     if (transitioning) return;
     window.speechSynthesis?.cancel();
 
+    const isLast = due.length === 1; // grading this empties today's queue
     const isFlipType = card?.cardType === "type1" || card?.cardType === "type2";
+
+    const commit = () => {
+      onGrade(card.id, sm2(card, g));
+      setExplanation(null);
+      setInteractiveKey(k => k + 1);
+      setReviewed(n => n + 1);
+      if (isLast) setCelebrate(true);
+    };
 
     if (isFlipType && flipped) {
       // Flip back to front, then commit grade after animation
       setTransitioning(true);
       setFlipped(false);
       setTimeout(() => {
-        onGrade(card.id, sm2(card, g));
-        setExplanation(null);
-        setInteractiveKey(k => k + 1);
+        commit();
         setTransitioning(false);
       }, 560);
     } else {
       // Interactive types or non-flipped: advance immediately, no animation needed
-      onGrade(card.id, sm2(card, g));
+      commit();
       setFlipped(false);
-      setExplanation(null);
-      setInteractiveKey(k => k + 1);
     }
   };
 
@@ -2574,9 +2688,12 @@ function StudyView({ cards, onGrade, language }) {
   );
 
   if (!due.length) return (
-    <div className="deck-empty">
-      <p>Sin repasos pendientes.<br />Vuelve mañana — el sistema hace el resto.</p>
-    </div>
+    <>
+      <div className="deck-empty">
+        <p>Sin repasos pendientes.<br />Vuelve mañana — el sistema hace el resto.</p>
+      </div>
+      {celebrate && <Celebration count={reviewed} onClose={() => setCelebrate(false)} />}
+    </>
   );
 
   const cardType = card.cardType || "type1";
