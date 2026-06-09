@@ -51,6 +51,8 @@ async function initDb() {
       PRIMARY KEY (id, user_id)
     );
 
+    ALTER TABLE cards ADD COLUMN IF NOT EXISTS lapses INTEGER NOT NULL DEFAULT 0;
+
     CREATE TABLE IF NOT EXISTS study_stats (
       user_id        INTEGER PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
       day            TEXT,                          -- last active local day 'YYYY-MM-DD'
@@ -116,7 +118,7 @@ app.get("/cards", requireAuth, async (req, res) => {
       `SELECT id, german, translation, note, card_type AS "cardType",
               image_url AS "imageUrl", audio_url AS "audioUrl",
               example, example_translation AS "exampleTranslation",
-              repetitions, easiness, interval,
+              repetitions, easiness, interval, lapses,
               next_review AS "nextReview", last_grade AS "lastGrade"
        FROM cards WHERE user_id = $1 ORDER BY created_at ASC`,
       [req.user.id]
@@ -146,8 +148,8 @@ app.put("/cards", requireAuth, async (req, res) => {
       await client.query(
         `INSERT INTO cards
            (id, user_id, german, translation, note, card_type, image_url, audio_url,
-            example, example_translation, repetitions, easiness, interval, next_review, last_grade)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)`,
+            example, example_translation, repetitions, easiness, interval, next_review, last_grade, lapses)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)`,
         [
           c.id, req.user.id,
           c.german, c.translation, c.note || "",
@@ -156,6 +158,7 @@ app.put("/cards", requireAuth, async (req, res) => {
           c.example || "", c.exampleTranslation || "",
           c.repetitions ?? 0, c.easiness ?? 2.5, c.interval ?? 0,
           c.nextReview ?? Date.now(), c.lastGrade ?? null,
+          c.lapses ?? 0,
         ]
       );
     }

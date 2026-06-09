@@ -132,18 +132,21 @@ function playCard(card) {
 // ── SM-2 Algorithm ──────────────────────────────────────────────────────────
 function sm2(card, grade) {
   let { repetitions, easiness, interval } = card;
+  let lapses = card.lapses ?? 0;
   if (grade >= 3) {
     if (repetitions === 0) interval = 1;
     else if (repetitions === 1) interval = 6;
     else interval = Math.round(interval * easiness);
     repetitions += 1;
   } else {
+    // count a lapse only when a previously learned card relapses
+    if (repetitions >= 1) lapses += 1;
     repetitions = 0;
     interval = 1;
   }
   easiness = Math.max(1.3, easiness + 0.1 - (5 - grade) * (0.08 + (5 - grade) * 0.02));
   const nextReview = Date.now() + interval * 86400000;
-  return { repetitions, easiness, interval, nextReview, lastGrade: grade };
+  return { repetitions, easiness, interval, nextReview, lastGrade: grade, lapses };
 }
 
 function daysUntil(ts) {
@@ -3790,6 +3793,7 @@ export default function App() {
       interval: 0,
       nextReview: Date.now(),
       lastGrade: null,
+      lapses: 0,
     };
     setCards(prev => [...prev, card]);
   }, []);
@@ -3828,6 +3832,7 @@ export default function App() {
       interval: 0,
       nextReview: now,
       lastGrade: null,
+      lapses: 0,
     }));
     setCards(prev => replace ? newCards : [...prev, ...newCards]);
   }, []);
