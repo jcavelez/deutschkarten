@@ -254,12 +254,19 @@ app.delete("/media/:filename", requireAuth, (req, res) => {
 
 // ── Explain ───────────────────────────────────────────────────────────────────
 app.post("/explain", requireAuth, async (req, res) => {
-  const { german, translation, note } = req.body;
+  const { german, translation, note, mode } = req.body;
   const apiKey = process.env.ANTHROPIC_API_KEY;
   if (!apiKey) return res.status(500).json({ error: "ANTHROPIC_API_KEY no configurada." });
 
   const langName = { de: "alemán", fr: "francés" }[req.user.language] || "alemán";
-  const prompt = `Eres un tutor de ${langName}. Explica esta tarjeta de forma concisa y útil.
+  const prompt = mode === "mnemonic"
+    ? `Eres un tutor de ${langName}. Esta tarjeta se le resiste al estudiante: la olvida una y otra vez.
+Palabra/frase en ${langName}: "${german}"
+Traducción: "${translation}"
+${note ? `Nota del estudiante: "${note}"` : ""}
+
+Dale UNA sola pista mnemónica corta y memorable para fijarla: una asociación, imagen mental o juego de palabras. Máximo 2 frases. Responde en español, sin preámbulo.`
+    : `Eres un tutor de ${langName}. Explica esta tarjeta de forma concisa y útil.
 Palabra/frase en ${langName}: "${german}"
 Traducción: "${translation}"
 ${note ? `Nota del estudiante: "${note}"` : ""}

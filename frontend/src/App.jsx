@@ -237,10 +237,10 @@ function bumpStats(prev) {
 }
 
 // ── AI Explanation ──────────────────────────────────────────────
-async function fetchExplanation(card) {
+async function fetchExplanation(card, mode) {
   return apiFetch("/explain", {
     method: "POST",
-    body: JSON.stringify({ german: card.german, translation: card.translation, note: card.note || "" }),
+    body: JSON.stringify({ german: card.german, translation: card.translation, note: card.note || "", mode }),
   }).then(d => d.text);
 }
 
@@ -1760,6 +1760,8 @@ const css = `
     margin-bottom: 0.6rem;
   }
 
+  .leech-item { align-items: start; }
+
   .leech-badge {
     font-size: 0.7rem;
     font-weight: 500;
@@ -1769,6 +1771,56 @@ const css = `
     padding: 0.15rem 0.45rem;
     white-space: nowrap;
   }
+
+  .leech-hint {
+    margin-top: 0.5rem;
+    padding: 0.6rem 0.75rem;
+    background: var(--surface-alt);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    font-size: 0.75rem;
+    line-height: 1.6;
+    color: var(--text-2);
+    white-space: pre-wrap;
+    overflow-wrap: break-word;
+  }
+
+  .leech-error {
+    margin-top: 0.4rem;
+    font-size: 0.7rem;
+    color: var(--danger);
+  }
+
+  .leech-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+    margin-top: 0.6rem;
+  }
+
+  .leech-btn {
+    padding: 0.4rem 0.7rem;
+    background: none;
+    border: 1px dashed var(--border-input);
+    border-radius: 6px;
+    color: var(--text-dim);
+    font-family: 'DM Mono', monospace;
+    font-size: 0.65rem;
+    letter-spacing: 0.06em;
+    cursor: pointer;
+    transition: color 0.2s, border-color 0.2s, background 0.2s;
+  }
+
+  .leech-btn:hover { color: var(--accent); border-color: var(--accent); }
+  .leech-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+
+  .leech-btn.primary {
+    border-style: solid;
+    border-color: var(--ok);
+    color: var(--ok-text);
+    background: var(--ok-soft);
+  }
+  .leech-btn.primary:hover { border-color: var(--ok-text); color: var(--ok-text); }
 
 
   /* ── Card type badges ── */
@@ -3110,7 +3162,54 @@ function AddView({ onAdd, onBulkAdd, language }) {
 
 
 // ── Stats View ────────────────────────────────────────────────────────────────
-function StatsView({ cards, stats }) {
+// A single leech in the stats list, with its own AI-hint workflow. Saving the
+// hint resets `lapses` to 0 so the card gets a fresh start out of leech status.
+function LeechItem({ card, onEdit }) {
+  const [loading, setLoading] = useState(false);
+  const [hint, setHint] = useState(null);
+  const [error, setError] = useState(null);
+
+  async function generate() {
+    setLoading(true);
+    setError(null);
+    try {
+      setHint(await fetchExplanation(card, "mnemonic"));
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  function save() {
+    onEdit({ ...card, note: hint, lapses: 0 });
+  }
+
+  return (
+    <div className="list-item leech-item">
+      <div style={{ width: "28px" }} />
+      <div className="li-main">
+        <div className="li-german">{card.german}</div>
+        <div className="li-trans">{card.translation}</div>
+        {hint && <div className="leech-hint">{hint}</div>}
+        {error && <div className="leech-error">{error}</div>}
+        <div className="leech-actions">
+          <button className="leech-btn" onClick={generate} disabled={loading}>
+            {loading ? "Consultando IA…" : hint ? "Otra pista" : "✦ Generar pista"}
+          </button>
+          {hint && (
+            <button className="leech-btn primary" onClick={save}>
+              Guardar como nota
+            </button>
+          )}
+        </div>
+      </div>
+      <div className="leech-badge" title="Veces olvidada">{card.lapses}×</div>
+    </div>
+  );
+}
+
+function StatsView({ cards, stats, onEdit }) {
   const now = Date.now();
   const DAY = 86400000;
 
@@ -3225,14 +3324,7 @@ function StatsView({ cards, stats }) {
           <div className="leech-title">Cartas difíciles</div>
           <div className="card-list">
             {leeches.map(c => (
-              <div key={c.id} className="list-item leech-item">
-                <div style={{ width: "28px" }} />
-                <div className="li-main">
-                  <div className="li-german">{c.german}</div>
-                  <div className="li-trans">{c.translation}</div>
-                </div>
-                <div className="leech-badge" title="Veces olvidada">{c.lapses}×</div>
-              </div>
+              <LeechItem key={c.id} card={c} onEdit={onEdit} />
             ))}
           </div>
         </div>
@@ -3982,7 +4074,7 @@ export default function App() {
         {view === "study" && <StudyView cards={cards} onGrade={gradeCard} onUpdateCards={setCards} language={language} stats={stats} />}
         {view === "add" && <AddView onAdd={card => { addCard(card); setView("study"); }} onBulkAdd={(items, replace) => { bulkAddCards(items, replace); setView("list"); }} language={language} />}
         {view === "list" && <ListView cards={cards} onDelete={deleteCard} onDeleteAll={deleteAllCards} onEdit={editCard} language={language} />}
-        {view === "stats" && <StatsView cards={cards} stats={stats} />}
+        {view === "stats" && <StatsView cards={cards} stats={stats} onEdit={editCard} />}
       </div>
     </>
   );
