@@ -149,6 +149,12 @@ function sm2(card, grade) {
   return { repetitions, easiness, interval, nextReview, lastGrade: grade, lapses };
 }
 
+// A leech is a card relearned and forgotten this many times.
+const LEECH_THRESHOLD = 4;
+function isLeech(card) {
+  return (card.lapses ?? 0) >= LEECH_THRESHOLD;
+}
+
 function daysUntil(ts) {
   const d = Math.ceil((ts - Date.now()) / 86400000);
   return d <= 0 ? "Hoy" : d === 1 ? "Mañana" : `${d} días`;
@@ -1703,7 +1709,7 @@ const css = `
 
   .stats-footer {
     display: grid;
-    grid-template-columns: repeat(3, 1fr);
+    grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
     gap: 0.75rem;
   }
 
@@ -1742,6 +1748,26 @@ const css = `
     .stats-row-label { font-size: 0.6rem; }
     .kpi-val { font-size: 1.4rem; }
     .kpi-label { font-size: 0.55rem; }
+  }
+
+  .leech-section { margin-top: 1.5rem; }
+
+  .leech-title {
+    font-size: 0.7rem;
+    color: var(--text-dim);
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    margin-bottom: 0.6rem;
+  }
+
+  .leech-badge {
+    font-size: 0.7rem;
+    font-weight: 500;
+    color: var(--danger);
+    background: var(--danger-soft);
+    border-radius: 6px;
+    padding: 0.15rem 0.45rem;
+    white-space: nowrap;
   }
 
 
@@ -3118,6 +3144,7 @@ function StatsView({ cards, stats }) {
 
   const max = Math.max(...buckets.map(b => b.count), 1);
   const total = cards.length;
+  const leeches = cards.filter(isLeech).sort((a, b) => (b.lapses ?? 0) - (a.lapses ?? 0));
 
   if (!total) return (
     <div className="deck-empty">
@@ -3185,7 +3212,31 @@ function StatsView({ cards, stats }) {
           </div>
           <div className="kpi-label">easiness promedio</div>
         </div>
+        <div className="stats-kpi">
+          <div className="kpi-val" style={{ color: "var(--danger)" }}>
+            {leeches.length}
+          </div>
+          <div className="kpi-label">difíciles</div>
+        </div>
       </div>
+
+      {leeches.length > 0 && (
+        <div className="leech-section">
+          <div className="leech-title">Cartas difíciles</div>
+          <div className="card-list">
+            {leeches.map(c => (
+              <div key={c.id} className="list-item leech-item">
+                <div style={{ width: "28px" }} />
+                <div className="li-main">
+                  <div className="li-german">{c.german}</div>
+                  <div className="li-trans">{c.translation}</div>
+                </div>
+                <div className="leech-badge" title="Veces olvidada">{c.lapses}×</div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
     </div>
   );
 }
