@@ -3164,7 +3164,7 @@ function AddView({ onAdd, onBulkAdd, language }) {
 // ── Stats View ────────────────────────────────────────────────────────────────
 // A single leech in the stats list, with its own AI-hint workflow. Saving the
 // hint resets `lapses` to 0 so the card gets a fresh start out of leech status.
-function LeechItem({ card, onEdit }) {
+function LeechItem({ card, onEdit, onConvert }) {
   const [loading, setLoading] = useState(false);
   const [hint, setHint] = useState(null);
   const [error, setError] = useState(null);
@@ -3202,6 +3202,9 @@ function LeechItem({ card, onEdit }) {
               Guardar como nota
             </button>
           )}
+          <button className="leech-btn" onClick={() => onConvert(card)}>
+            🖼 Convertir a imagen
+          </button>
         </div>
       </div>
       <div className="leech-badge" title="Veces olvidada">{card.lapses}×</div>
@@ -3209,9 +3212,10 @@ function LeechItem({ card, onEdit }) {
   );
 }
 
-function StatsView({ cards, stats, onEdit }) {
+function StatsView({ cards, stats, onEdit, language }) {
   const now = Date.now();
   const DAY = 86400000;
+  const [converting, setConverting] = useState(null);
 
   // Streak/daily figures (a streak is "alive" only if last active day is today
   // or yesterday; today's count only applies if `day` is actually today).
@@ -3324,10 +3328,19 @@ function StatsView({ cards, stats, onEdit }) {
           <div className="leech-title">Cartas difíciles</div>
           <div className="card-list">
             {leeches.map(c => (
-              <LeechItem key={c.id} card={c} onEdit={onEdit} />
+              <LeechItem key={c.id} card={c} onEdit={onEdit} onConvert={setConverting} />
             ))}
           </div>
         </div>
+      )}
+
+      {converting && (
+        <EditModal
+          card={{ ...converting, cardType: "type1" }}
+          language={language}
+          onSave={updated => { onEdit({ ...updated, lapses: 0 }); setConverting(null); }}
+          onClose={() => setConverting(null)}
+        />
       )}
     </div>
   );
@@ -4074,7 +4087,7 @@ export default function App() {
         {view === "study" && <StudyView cards={cards} onGrade={gradeCard} onUpdateCards={setCards} language={language} stats={stats} />}
         {view === "add" && <AddView onAdd={card => { addCard(card); setView("study"); }} onBulkAdd={(items, replace) => { bulkAddCards(items, replace); setView("list"); }} language={language} />}
         {view === "list" && <ListView cards={cards} onDelete={deleteCard} onDeleteAll={deleteAllCards} onEdit={editCard} language={language} />}
-        {view === "stats" && <StatsView cards={cards} stats={stats} onEdit={editCard} />}
+        {view === "stats" && <StatsView cards={cards} stats={stats} onEdit={editCard} language={language} />}
       </div>
     </>
   );
