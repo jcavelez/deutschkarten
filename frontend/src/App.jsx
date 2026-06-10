@@ -213,19 +213,28 @@ function localDateStr(d = new Date()) {
 function dayDiff(from, to) {
   return Math.round((new Date(to + "T00:00:00") - new Date(from + "T00:00:00")) / 86400000);
 }
-// Register one review "now", updating today's count and the consecutive-day streak.
-function bumpStats(prev) {
+// Default new-cards-per-day limit. ~20 is the common recommendation for
+// sustainable language learning (keeps the daily review load manageable).
+const DEFAULT_NEW_LIMIT = 20;
+
+// Register one review "now", updating today's count and the consecutive-day
+// streak. `isNew` marks the graded card as a brand-new introduction, which
+// counts against the daily new-card limit (tracked in `newToday`, reset daily).
+function bumpStats(prev, isNew = false) {
   const today = localDateStr();
+  const inc = isNew ? 1 : 0;
   if (!prev || !prev.day) {
-    return { day: today, todayCount: 1, currentStreak: 1, longestStreak: 1 };
+    return { day: today, todayCount: 1, currentStreak: 1, longestStreak: 1,
+             dailyNewLimit: prev?.dailyNewLimit ?? DEFAULT_NEW_LIMIT, newToday: inc };
   }
+  const dailyNewLimit = prev.dailyNewLimit ?? DEFAULT_NEW_LIMIT;
   if (prev.day === today) {
-    return { ...prev, todayCount: prev.todayCount + 1 };
+    return { ...prev, todayCount: prev.todayCount + 1, newToday: (prev.newToday ?? 0) + inc, dailyNewLimit };
   }
   const diff = dayDiff(prev.day, today);
   if (diff <= 0) {
     // Clock moved backwards — treat as the same day, don't rewind the streak.
-    return { ...prev, todayCount: prev.todayCount + 1 };
+    return { ...prev, todayCount: prev.todayCount + 1, newToday: (prev.newToday ?? 0) + inc, dailyNewLimit };
   }
   const currentStreak = diff === 1 ? prev.currentStreak + 1 : 1;
   return {
@@ -233,6 +242,8 @@ function bumpStats(prev) {
     todayCount: 1,
     currentStreak,
     longestStreak: Math.max(prev.longestStreak || 0, currentStreak),
+    dailyNewLimit,
+    newToday: inc, // new day → reset the new-card counter
   };
 }
 
@@ -342,7 +353,9 @@ const css = `
 
   .nav {
     display: flex;
-    gap: 0.25rem;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+    gap: 0.25rem 0.1rem;
   }
 
   .nav-btn {
@@ -1911,6 +1924,100 @@ const css = `
   }
   .help-tips strong, .help-type-tip strong { color: var(--text); }
 
+  /* ── Settings View ── */
+  .settings-section {
+    background: var(--surface);
+    box-shadow: var(--shadow-soft);
+    border-radius: 10px;
+    padding: 1.5rem;
+  }
+
+  .settings-label {
+    font-family: 'Playfair Display', serif;
+    font-size: 1.1rem;
+    color: var(--text);
+    margin-bottom: 0.5rem;
+  }
+
+  .settings-help {
+    font-size: 0.78rem;
+    line-height: 1.6;
+    color: var(--text-2);
+    margin-bottom: 1.25rem;
+  }
+
+  .settings-stepper {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    margin-bottom: 1rem;
+  }
+  .step-btn {
+    width: 44px;
+    height: 44px;
+    border: 1px solid var(--border-input);
+    background: var(--surface);
+    border-radius: 10px;
+    color: var(--text);
+    font-size: 1.4rem;
+    line-height: 1;
+    cursor: pointer;
+    transition: border-color 0.2s, color 0.2s;
+  }
+  .step-btn:hover:not(:disabled) { border-color: var(--accent); color: var(--accent); }
+  .step-btn:disabled { opacity: 0.35; cursor: not-allowed; }
+  .step-val {
+    font-family: 'DM Mono', monospace;
+    font-size: 2rem;
+    font-weight: 500;
+    color: var(--text);
+    min-width: 3rem;
+    text-align: center;
+  }
+
+  .settings-presets {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.4rem;
+    margin-bottom: 1.25rem;
+  }
+  .preset-chip {
+    padding: 0.4rem 0.8rem;
+    border: 1px solid var(--border-input);
+    background: none;
+    border-radius: 20px;
+    color: var(--text-dim);
+    font-family: 'DM Mono', monospace;
+    font-size: 0.75rem;
+    cursor: pointer;
+    transition: all 0.2s;
+  }
+  .preset-chip:hover { border-color: var(--accent); color: var(--accent); }
+  .preset-chip.active {
+    background: var(--accent-soft);
+    border-color: var(--accent);
+    color: var(--accent);
+  }
+
+  .settings-note {
+    font-size: 0.75rem;
+    line-height: 1.6;
+    color: var(--text-dim);
+    background: var(--surface-alt);
+    border-radius: 8px;
+    padding: 0.75rem 1rem;
+    margin-bottom: 1rem;
+  }
+  .settings-note strong { color: var(--accent); }
+
+  .settings-today {
+    font-size: 0.7rem;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--text-faint);
+  }
+  .settings-today strong { color: var(--text-2); }
+
 
   /* ── Card type badges ── */
   .card-type-badge {
@@ -2864,15 +2971,26 @@ function StudyView({ cards, onGrade, language, stats }) {
   const [reviewed, setReviewed] = useState(0);   // graded this session
   const [celebrate, setCelebrate] = useState(false);
 
-  // Stable shuffled due list — only recomputes when card set changes
+  // Daily new-card budget: how many fresh cards may still enter today.
+  const newLimit = stats?.dailyNewLimit ?? DEFAULT_NEW_LIMIT;
+  const newDoneToday = stats && stats.day === localDateStr() ? (stats.newToday ?? 0) : 0;
+  const newRemaining = Math.max(0, newLimit - newDoneToday);
+
+  // Due queue = all due reviews + up to `newRemaining` brand-new cards.
+  // A brand-new card is due and never graded (repetitions 0, no lastGrade); a
+  // relapsed card carries a lastGrade, so it counts as a review (always shown).
   const due = React.useMemo(() => {
-    const list = cards.filter(c => c.nextReview <= Date.now());
+    const isFresh = c => c.repetitions === 0 && c.lastGrade == null;
+    const dueList = cards.filter(c => c.nextReview <= Date.now());
+    const reviews = dueList.filter(c => !isFresh(c));
+    const fresh = dueList.filter(isFresh).slice(0, newRemaining);
+    const list = [...reviews, ...fresh];
     for (let i = list.length - 1; i > 0; i--) {
       const j = Math.floor(Math.random() * (i + 1));
       [list[i], list[j]] = [list[j], list[i]];
     }
     return list;
-  }, [cards.map(c => c.id + c.nextReview).join(",")]);
+  }, [cards.map(c => c.id + c.nextReview).join(","), newRemaining]);
 
   const card = due[0];
 
@@ -2892,9 +3010,10 @@ function StudyView({ cards, onGrade, language, stats }) {
 
     const isLast = due.length === 1; // grading this empties today's queue
     const isFlipType = card?.cardType === "type1" || card?.cardType === "type2";
+    const wasNew = card.repetitions === 0 && card.lastGrade == null;
 
     const commit = () => {
-      onGrade(card.id, sm2(card, g));
+      onGrade(card.id, sm2(card, g), wasNew);
       setExplanation(null);
       setInteractiveKey(k => k + 1);
       setReviewed(n => n + 1);
@@ -2929,14 +3048,23 @@ function StudyView({ cards, onGrade, language, stats }) {
     </div>
   );
 
-  if (!due.length) return (
-    <>
-      <div className="deck-empty">
-        <p>Sin repasos pendientes.<br />Vuelve mañana — el sistema hace el resto.</p>
-      </div>
-      {celebrate && <Celebration count={stats?.todayCount ?? reviewed} streak={stats?.currentStreak ?? 0} onClose={() => setCelebrate(false)} />}
-    </>
-  );
+  if (!due.length) {
+    // Distinguish "nothing left" from "daily new-card limit reached".
+    const lockedNew = cards.some(c => c.nextReview <= Date.now() && c.repetitions === 0 && c.lastGrade == null);
+    return (
+      <>
+        <div className="deck-empty">
+          {lockedNew ? (
+            <p>Alcanzaste tu límite de <strong>{newLimit}</strong> tarjetas nuevas por hoy.<br />
+              Vuelve mañana, o súbelo en <strong>Ajustes</strong> si quieres seguir.</p>
+          ) : (
+            <p>Sin repasos pendientes.<br />Vuelve mañana — el sistema hace el resto.</p>
+          )}
+        </div>
+        {celebrate && <Celebration count={stats?.todayCount ?? reviewed} streak={stats?.currentStreak ?? 0} onClose={() => setCelebrate(false)} />}
+      </>
+    );
+  }
 
   const cardType = card.cardType || "type1";
   const isInteractive = ["type4", "type5", "type6"].includes(cardType);
@@ -2946,6 +3074,7 @@ function StudyView({ cards, onGrade, language, stats }) {
     <div>
       <div className="session-info">
         <span>Pendientes: <strong>{due.length}</strong></span>
+        <span>Nuevas hoy: <strong>{newDoneToday}/{newLimit}</strong></span>
         <span>Total: <strong>{cards.length}</strong></span>
       </div>
 
@@ -3338,6 +3467,15 @@ function StatsView({ cards, stats, onEdit, language }) {
   const total = cards.length;
   const leeches = cards.filter(isLeech).sort((a, b) => (b.lapses ?? 0) - (a.lapses ?? 0));
 
+  // "To study today" honours the daily new-card limit: all due reviews plus only
+  // the new cards that still fit in today's budget.
+  const isFresh = c => c.repetitions === 0 && c.lastGrade == null;
+  const newLimit = stats?.dailyNewLimit ?? DEFAULT_NEW_LIMIT;
+  const newDoneToday = stats && stats.day === localDateStr() ? (stats.newToday ?? 0) : 0;
+  const freshDue = cards.filter(c => c.nextReview <= now && isFresh(c)).length;
+  const reviewsDue = cards.filter(c => c.nextReview <= now && !isFresh(c)).length;
+  const toStudyToday = reviewsDue + Math.min(freshDue, Math.max(0, newLimit - newDoneToday));
+
   if (!total) return (
     <div className="deck-empty">
       <p>Sin tarjetas aún.<br />Ve a <strong>+ Agregar</strong> para empezar.</p>
@@ -3388,7 +3526,7 @@ function StatsView({ cards, stats, onEdit, language }) {
       <div className="stats-footer">
         <div className="stats-kpi">
           <div className="kpi-val" style={{ color: "#cc0000" }}>
-            {buckets[0].count + buckets[1].count}
+            {toStudyToday}
           </div>
           <div className="kpi-label">para estudiar hoy</div>
         </div>
@@ -3906,6 +4044,52 @@ function AuthView({ onAuth }) {
   );
 }
 
+// ── Settings View ─────────────────────────────────────────────────────────────
+function SettingsView({ stats, onChangeLimit }) {
+  const limit = stats?.dailyNewLimit ?? DEFAULT_NEW_LIMIT;
+  const newDoneToday = stats && stats.day === localDateStr() ? (stats.newToday ?? 0) : 0;
+  const presets = [5, 10, 15, 20, 30, 50];
+  const setLimit = n => onChangeLimit(Math.max(0, Math.min(200, n)));
+
+  return (
+    <div className="settings-view">
+      <div className="settings-section">
+        <div className="settings-label">Tarjetas nuevas por día</div>
+        <p className="settings-help">
+          Cuántas tarjetas que nunca has visto entran al repaso cada día. Los repasos de
+          tarjetas que ya aprendiste no tienen límite — siempre aparecen cuando toca.
+        </p>
+
+        <div className="settings-stepper">
+          <button className="step-btn" onClick={() => setLimit(limit - 5)} disabled={limit <= 0}>−</button>
+          <div className="step-val">{limit}</div>
+          <button className="step-btn" onClick={() => setLimit(limit + 5)} disabled={limit >= 200}>+</button>
+        </div>
+
+        <div className="settings-presets">
+          {presets.map(p => (
+            <button
+              key={p}
+              className={`preset-chip ${limit === p ? "active" : ""}`}
+              onClick={() => setLimit(p)}
+            >{p}</button>
+          ))}
+        </div>
+
+        <p className="settings-note">
+          Recomendado: <strong>20</strong> al día — un ritmo sostenible para aprender un
+          idioma sin saturarte de repasos. Pon <strong>0</strong> para pausar las nuevas y
+          repasar solo lo que ya tienes.
+        </p>
+
+        <div className="settings-today">
+          Hoy: <strong>{newDoneToday}/{limit}</strong> nuevas introducidas
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ── Help / Info View ──────────────────────────────────────────────────────────
 function HelpView({ language }) {
   const langName = (LANG_LABELS[language] || LANG_LABELS.de).name.toLowerCase();
@@ -4114,9 +4298,16 @@ export default function App() {
     setCards(prev => [...prev, card]);
   }, []);
 
-  const gradeCard = useCallback((id, updates) => {
+  const gradeCard = useCallback((id, updates, isNew = false) => {
     setCards(prev => prev.map(c => c.id === id ? { ...c, ...updates } : c));
-    setStats(prev => bumpStats(prev));
+    setStats(prev => bumpStats(prev, isNew));
+  }, []);
+
+  const setNewLimit = useCallback((n) => {
+    setStats(prev => {
+      const base = prev || { day: localDateStr(), todayCount: 0, currentStreak: 0, longestStreak: 0, newToday: 0 };
+      return { ...base, dailyNewLimit: n };
+    });
   }, []);
 
   const deleteCard = useCallback((id) => {
@@ -4175,6 +4366,7 @@ export default function App() {
     { id: "add", label: "+ Agregar" },
     { id: "list", label: "Lista" },
     { id: "stats", label: "Estado" },
+    { id: "settings", label: "Ajustes" },
     { id: "help", label: "Ayuda" },
   ];
 
@@ -4249,6 +4441,7 @@ export default function App() {
         {view === "add" && <AddView onAdd={card => { addCard(card); setView("study"); }} onBulkAdd={(items, replace) => { bulkAddCards(items, replace); setView("list"); }} language={language} />}
         {view === "list" && <ListView cards={cards} onDelete={deleteCard} onDeleteAll={deleteAllCards} onEdit={editCard} language={language} />}
         {view === "stats" && <StatsView cards={cards} stats={stats} onEdit={editCard} language={language} />}
+        {view === "settings" && <SettingsView stats={stats} onChangeLimit={setNewLimit} />}
         {view === "help" && <HelpView language={language} />}
       </div>
     </>

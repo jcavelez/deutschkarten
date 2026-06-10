@@ -60,6 +60,11 @@ async function initDb() {
       current_streak INTEGER NOT NULL DEFAULT 0,
       longest_streak INTEGER NOT NULL DEFAULT 0
     );
+
+    -- daily_new_limit: user setting (new cards introduced per day).
+    -- new_today: how many new cards were introduced on the active day (resets daily).
+    ALTER TABLE study_stats ADD COLUMN IF NOT EXISTS daily_new_limit INTEGER NOT NULL DEFAULT 20;
+    ALTER TABLE study_stats ADD COLUMN IF NOT EXISTS new_today INTEGER NOT NULL DEFAULT 0;
   `);
   console.log("DB schema ready");
 }
@@ -180,11 +185,12 @@ app.get("/stats", requireAuth, async (req, res) => {
   try {
     const result = await pool.query(
       `SELECT day, today_count AS "todayCount",
-              current_streak AS "currentStreak", longest_streak AS "longestStreak"
+              current_streak AS "currentStreak", longest_streak AS "longestStreak",
+              daily_new_limit AS "dailyNewLimit", new_today AS "newToday"
        FROM study_stats WHERE user_id = $1`,
       [req.user.id]
     );
-    res.json(result.rows[0] || { day: null, todayCount: 0, currentStreak: 0, longestStreak: 0 });
+    res.json(result.rows[0] || { day: null, todayCount: 0, currentStreak: 0, longestStreak: 0, dailyNewLimit: 20, newToday: 0 });
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: "Error al cargar estadísticas." });
@@ -192,17 +198,19 @@ app.get("/stats", requireAuth, async (req, res) => {
 });
 
 app.put("/stats", requireAuth, async (req, res) => {
-  const { day, todayCount, currentStreak, longestStreak } = req.body || {};
+  const { day, todayCount, currentStreak, longestStreak, dailyNewLimit, newToday } = req.body || {};
   try {
     await pool.query(
-      `INSERT INTO study_stats (user_id, day, today_count, current_streak, longest_streak)
-       VALUES ($1, $2, $3, $4, $5)
+      `INSERT INTO study_stats (user_id, day, today_count, current_streak, longest_streak, daily_new_limit, new_today)
+       VALUES ($1, $2, $3, $4, $5, $6, $7)
        ON CONFLICT (user_id) DO UPDATE SET
          day = EXCLUDED.day,
          today_count = EXCLUDED.today_count,
          current_streak = EXCLUDED.current_streak,
-         longest_streak = EXCLUDED.longest_streak`,
-      [req.user.id, day || null, todayCount ?? 0, currentStreak ?? 0, longestStreak ?? 0]
+         longest_streak = EXCLUDED.longest_streak,
+         daily_new_limit = EXCLUDED.daily_new_limit,
+         new_today = EXCLUDED.new_today`,
+      [req.user.id, day || null, todayCount ?? 0, currentStreak ?? 0, longestStreak ?? 0, dailyNewLimit ?? 20, newToday ?? 0]
     );
     res.json({ ok: true });
   } catch (err) {
