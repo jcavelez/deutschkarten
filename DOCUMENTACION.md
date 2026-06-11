@@ -104,8 +104,9 @@ del próximo repaso (Nuevas, Hoy, Mañana, 3–7, 8–30, +30 días), más KPIs
                                       Anthropic API (explicaciones)
 ```
 
-- **Frontend:** React 18 + Vite. Toda la UI vive en `frontend/src/App.jsx`
-  (los estilos son un string CSS inyectado). Se sirve estático con **nginx**.
+- **Frontend:** React 18 + Vite, dividido en módulos bajo `frontend/src/`
+  (los estilos son un string CSS inyectado desde `styles.js`). Se sirve
+  estático con **nginx**.
 - **Backend:** Node + Express (`backend/server.js`). PostgreSQL vía `pg`.
 - **Base de datos:** PostgreSQL (en producción, Neon).
 - **Contenedores:** `docker-compose.yml` con dos servicios (`api`, `frontend`).
@@ -118,7 +119,14 @@ backend/
   scripts/create-user.js Crear usuarios manualmente
   Dockerfile
 frontend/
-  src/App.jsx            Toda la app (componentes + estilos)
+  src/App.jsx            Shell: sesión, estado global, persistencia y navegación
+  src/api.js             Cliente HTTP del backend (token, cards, stats, media, IA)
+  src/srs.js             Algoritmo SM-2, racha y contadores diarios (funciones puras)
+  src/speech.js          Pronunciación (Web Speech API + audio adjunto)
+  src/cardTypes.js       Tipos de tarjeta, etiquetas por idioma, validación
+  src/styles.js          Todo el CSS de la app (string inyectado)
+  src/components/        Un archivo por vista + caras de tarjeta, zonas de
+                         respuesta y modales
   src/main.jsx
   index.html
   public/favicon.svg

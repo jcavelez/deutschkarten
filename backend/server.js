@@ -9,10 +9,15 @@ const bcrypt       = require("bcrypt");
 const jwt          = require("jsonwebtoken");
 
 const app       = express();
-const MEDIA_DIR = "/data/media";
+// /data/media is the Docker volume; override with MEDIA_DIR when running the
+// server directly (e.g. local development outside Docker).
+const MEDIA_DIR = process.env.MEDIA_DIR || "/data/media";
 const PORT      = 3001;
 const JWT_SECRET = process.env.JWT_SECRET || "change_me_in_production";
 const SALT_ROUNDS = 10;
+
+if (!process.env.JWT_SECRET)
+  console.warn("ADVERTENCIA: JWT_SECRET no está definido; usando el valor por defecto (solo aceptable en desarrollo).");
 
 fs.mkdirSync(MEDIA_DIR, { recursive: true });
 
@@ -311,6 +316,15 @@ Explica: etimología o lógica de la palabra, uso en contexto, cualquier truco m
 
 // ── Health ────────────────────────────────────────────────────────────────────
 app.get("/health", (req, res) => res.json({ ok: true }));
+
+// ── Errors ────────────────────────────────────────────────────────────────────
+// Without this, multer's rejections (file too big, type not allowed) fall into
+// Express's default handler and reach the client as an HTML error page.
+app.use((err, req, res, next) => {
+  console.error(err);
+  const isUploadError = err instanceof multer.MulterError || err.message?.startsWith("Tipo no permitido");
+  res.status(isUploadError ? 400 : 500).json({ error: err.message || "Error interno." });
+});
 
 // ── Start ─────────────────────────────────────────────────────────────────────
 initDb()

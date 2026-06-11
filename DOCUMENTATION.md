@@ -101,8 +101,9 @@ soon each card is due (New, Today, Tomorrow, 3–7, 8–30, 30+ days), and KPIs
                                       Anthropic API (explanations)
 ```
 
-- **Frontend:** React 18 + Vite. The whole UI lives in `frontend/src/App.jsx`
-  (styles are an injected CSS string). Served statically with **nginx**.
+- **Frontend:** React 18 + Vite, split into modules under `frontend/src/`
+  (styles are an injected CSS string in `styles.js`). Served statically with
+  **nginx**.
 - **Backend:** Node + Express (`backend/server.js`). PostgreSQL via `pg`.
 - **Database:** PostgreSQL (Neon in production).
 - **Containers:** `docker-compose.yml` with two services (`api`, `frontend`).
@@ -115,7 +116,13 @@ backend/
   scripts/create-user.js Manually create users
   Dockerfile
 frontend/
-  src/App.jsx            The whole app (components + styles)
+  src/App.jsx            Shell: session, global state, persistence, navigation
+  src/api.js             Backend HTTP client (token, cards, stats, media, AI)
+  src/srs.js             SM-2 algorithm, streak and daily counters (pure functions)
+  src/speech.js          Pronunciation (Web Speech API + attached audio)
+  src/cardTypes.js       Card types, per-language labels, validation
+  src/styles.js          All app CSS (injected string)
+  src/components/        One file per view + card faces, answer zones, modals
   src/main.jsx
   index.html
   public/favicon.svg
